@@ -40,7 +40,3 @@ python scripts/train.py
 ```bash
 python scripts/inference.py
 ```
-
-## Troubleshooting
-
-Ver [troubleshooting.md](troubleshooting.md) para problemas comunes.

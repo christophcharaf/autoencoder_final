@@ -84,7 +84,6 @@ Ver [documentación completa](docs/) para:
 
 - [Guía de instalación](docs/installation.md)
 - [Configuración avanzada](docs/configuration.md)
-- [API Reference](docs/api.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ## Contribución
