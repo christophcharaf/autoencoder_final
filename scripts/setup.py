@@ -7,6 +7,7 @@ Script de configuración inicial para el sistema de detección de anomalías
 import os
 import sys
 import subprocess
+import shutil
 from pathlib import Path
 
 def create_directory_structure():
@@ -14,14 +15,23 @@ def create_directory_structure():
     print("Creating directory structure...")
     
     directories = [
-        "src/data", "src/models", "src/alerting", "src/utils",
-        "config", "scripts", "models", "logs", 
-        "tests/unit", "tests/integration", "docs"
+        "src/data",
+        "src/models", 
+        "src/alerting",
+        "src/utils",
+        "config",
+        "scripts",
+        "models",
+        "logs",
+        "tests/unit",
+        "tests/integration",
+        "docs"
     ]
     
     for directory in directories:
         Path(directory).mkdir(parents=True, exist_ok=True)
         
+        # Crear __init__.py en directorios de Python
         if directory.startswith("src/"):
             init_file = Path(directory) / "__init__.py"
             init_file.touch()
@@ -37,10 +47,11 @@ def install_python_dependencies():
             sys.executable, "-m", "pip", "install", "-r", "requirements.txt"
         ], check=True)
         print("✅ Python dependencies installed")
-        return True
     except subprocess.CalledProcessError:
         print("❌ Failed to install Python dependencies")
         return False
+    
+    return True
 
 def main():
     """Función principal de setup"""

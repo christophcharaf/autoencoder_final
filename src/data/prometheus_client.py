@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+import time
 
 class PrometheusClient:
     """
@@ -63,6 +64,7 @@ class PrometheusClient:
         
         if dfs:
             combined = pd.concat(dfs, ignore_index=True)
+            # Pivot para tener métricas como columnas
             pivoted = combined.pivot(index='timestamp', columns='metric', values='value')
             pivoted.reset_index(inplace=True)
             return pivoted.fillna(0)
@@ -76,6 +78,7 @@ class PrometheusClient:
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=hours_back)
         
+        # Queries típicas para TV-over-IP
         queries = [
             'rate(http_requests_total[5m])',
             'histogram_quantile(0.95, http_request_duration_seconds)',
