@@ -1,0 +1,35 @@
+model:
+  # Arquitectura del autoencoder LSTM
+  architecture:
+    encoder_layers: [64, 32, 16]    # Capas del encoder
+    decoder_layers: [16, 32, 64]    # Capas del decoder (espejo)
+    activation: "tanh"              # Función de activación
+    dropout: 0.1                    # Dropout para regularización
+    
+  # Parámetros de entrenamiento
+  training:
+    batch_size: 32                  # Batch size (optimizado para GPU)
+    epochs: 50                      # Épocas de entrenamiento
+    early_stopping: true           # Parada temprana
+    patience: 10                    # Paciencia para early stopping
+    validation_split: 0.2           # Split de validación
+    
+  # Hiperparámetros del optimizador
+  hyperparameters:
+    learning_rate: 0.001            # Learning rate inicial
+    optimizer: "adam"               # Optimizador (adam, sgd, rmsprop)
+    loss: "mse"                     # Función de pérdida
+    beta_1: 0.9                     # Beta1 para Adam
+    beta_2: 0.999                   # Beta2 para Adam
+    
+  # Configuración del modelo
+  settings:
+    verbose_training: 1             # Verbosidad durante entrenamiento
+    save_best_only: true           # Guardar solo el mejor modelo
+    monitor_metric: "val_loss"      # Métrica a monitorear
+    
+  # Configuraciones específicas para Mamba/GPU
+  performance:
+    mixed_precision: false         # Precision mixta (experimental)
+    gpu_memory_growth: true        # Crecimiento dinámico GPU memory
+    parallel_gpu: false            # Multi-GPU (experimental)

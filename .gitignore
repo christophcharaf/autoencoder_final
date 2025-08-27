@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Modelos entrenados y datos
+models/*.h5
+models/*.joblib
+models/*.npy
+models/*.pkl
+*.csv
+*.parquet
+
+# Logs
+logs/
+*.log
+
+# Configuración local
+.env
+config/local*.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Profiling  
+*.prof
+mprofile_*.dat
+
+# MyPy
+.mypy_cache/
+
+# Docker
+.dockerignore
+
+# Temporary
+*.tmp
+temp/
+.cache/
+
+# Mamba/Conda
+.conda/
+.mamba/
+
+# Development data
+prometheus_data/
+grafana_data/
+dev_data/
