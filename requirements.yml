@@ -1,0 +1,11 @@
+dependencies:
+  - numpy
+  - pandas
+  - tensorflow
+  - scikit-learn
+  - requests
+  - pyyaml
+  - python-dotenv
+  - joblib
+  - pip:
+      - prometheus-api-client

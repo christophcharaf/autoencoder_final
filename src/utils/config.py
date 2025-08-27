@@ -1,13 +1,23 @@
 import yaml
+
+import yaml
 import os
 from typing import Dict, Any
 from pathlib import Path
 
+# Ensure prometheus-api-client is installed
+try:
+    import prometheus_api_client
+except ImportError:
+    import subprocess
+    import sys
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'prometheus-api-client'])
+    import prometheus_api_client
 class Config:
     def __init__(self, config_path: str = None):
         """
         Carga configuración desde archivos YAML y variables de entorno
-        """
+        """ 
         self.config_path = config_path or "config/"
         self.config = self._load_all_configs()
     

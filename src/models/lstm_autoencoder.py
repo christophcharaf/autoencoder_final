@@ -43,16 +43,16 @@ class LSTMAutoencoder:
         # Repeat latent vector para decoder
         x = layers.RepeatVector(self.input_shape[0])(latent)
         
-        # Decoder
+        # Decoder - TODAS las capas LSTM deben tener return_sequences=True
         for i, units in enumerate(self.decoder_layers):
-            return_seq = i < len(self.decoder_layers) - 1
-            x = layers.LSTM(units, return_sequences=return_seq, 
+            x = layers.LSTM(units, return_sequences=True,  # ✅ SIEMPRE True
                           name=f'decoder_lstm_{i}')(x)
             x = layers.Dropout(self.dropout)(x)
         
-        # Output layer
-        outputs = layers.Dense(self.input_shape[1], activation='linear')(x)
-        outputs = layers.Reshape(self.input_shape)(outputs)
+        # Output layer - Usar TimeDistributed para aplicar Dense a cada timestep
+        outputs = layers.TimeDistributed(
+            layers.Dense(self.input_shape[1], activation='linear')
+        )(x)
         
         # Compilar modelo
         self.model = keras.Model(inputs=inputs, outputs=outputs, name='lstm_autoencoder')
