@@ -4,21 +4,15 @@ windowing:
   step_size: 30            # segundos por paso
   stride: 20               # sin solapamiento para MVP
   
-  # Configuraciones experimentales (Fase 2) 
+  # Configuraciones experimentales (para Fase 2)
   experimental:
-    enable_overlap: false  # habilitarlo en Fase 2 para experimentación
-    stride_options: [1, 3, 5, 10, 20]  # opciones para ventanas solapadas
-    window_size_options: [15, 20, 25, 30]  # tamaños alternativos
+    enable_overlap: false  # deshabilitado en MVP
+    stride_options: [1, 3, 5, 10, 20]
+    window_size_options: [15, 20, 25, 30]
   
-  # Multi-escala (Fase 3)
+  # Multi-escala (futuro)
   multi_scale:
     enable: false
     short_window: 10       # 5 min - anomalías agudas
     medium_window: 20      # 10 min - degradación gradual  
     long_context: 120      # 60 min - contexto estacional
-
-# Performance settings para Mamba
-performance:
-  batch_processing: true   # Procesar múltiples ventanas en lotes  
-  parallel_workers: 4      # Workers paralelos para preprocessing
-  memory_optimization: true  # Optimizaciones de memoria

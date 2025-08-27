@@ -1,0 +1,27 @@
+alerting:
+  # Configuración de threshold
+  threshold:
+    method: "percentile"     # percentile, fixed, adaptive
+    percentile: 95           # para método percentile
+    fixed_value: null        # para método fixed
+    adaptive_window: 168     # horas para método adaptativo
+    
+  # Configuración Opsgenie
+  opsgenie:
+    api_key: "${OPSGENIE_API_KEY}"
+    team: "platform-ops"
+    base_url: "https://api.opsgenie.com"
+    default_priority: "P3"
+    
+  # Configuración Grafana
+  grafana:
+    base_url: "${GRAFANA_URL}"
+    dashboard_uid: "anomaly-detection"
+    default_time_range: "30m"
+    refresh_interval: "30s"
+    
+  # Control de alertas
+  rate_limiting:
+    min_interval_seconds: 300  # 5 minutos entre alertas
+    max_alerts_per_hour: 10
+    enable_deduplication: true

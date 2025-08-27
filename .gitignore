@@ -11,13 +11,11 @@ ENV/
 dist/
 build/
 
-# Modelos entrenados y datos
+# Modelos entrenados
 models/*.h5
 models/*.joblib
 models/*.npy
 models/*.pkl
-*.csv
-*.parquet
 
 # Logs
 logs/
@@ -37,36 +35,15 @@ config/local*.yaml
 .DS_Store
 Thumbs.db
 
-# Jupyter
-.ipynb_checkpoints/
-notebooks/.ipynb_checkpoints/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# Profiling  
-*.prof
-mprofile_*.dat
-
-# MyPy
-.mypy_cache/
-
 # Docker
 .dockerignore
 
-# Temporary
+# Archivos temporales
 *.tmp
 temp/
-.cache/
 
-# Mamba/Conda
-.conda/
-.mamba/
-
-# Development data
+# Prometheus data
 prometheus_data/
+
+# Grafana data
 grafana_data/
-dev_data/

@@ -1,0 +1,55 @@
+data:
+  # Configuración Prometheus
+  prometheus:
+    url: "${PROMETHEUS_URL}"
+    token: "${PROMETHEUS_TOKEN}"
+    timeout_seconds: 30
+    
+  # Métricas a recopilar
+  metrics:
+    # Métricas básicas de TV-over-IP
+    queries:
+      - name: "request_rate"
+        query: "rate(http_requests_total[5m])"
+        description: "Request rate per second"
+        
+      - name: "latency_p95" 
+        query: "histogram_quantile(0.95, http_request_duration_seconds)"
+        description: "95th percentile latency"
+        
+      - name: "service_availability"
+        query: "up"
+        description: "Service availability"
+        
+      - name: "memory_usage"
+        query: "process_resident_memory_bytes / 1024 / 1024 / 1024"
+        description: "Memory usage in GB"
+        
+      - name: "error_rate"
+        query: "rate(http_request_errors_total[5m])"
+        description: "Error rate per second"
+        
+      - name: "cpu_usage"
+        query: "rate(process_cpu_seconds_total[5m])"
+        description: "CPU usage rate"
+  
+  # Configuración de feature engineering
+  features:
+    temporal:
+      hour_sin: true
+      hour_cos: true
+      day_of_week: true
+      is_weekend: true
+      is_night: true
+    
+    preprocessing:
+      normalization: "standard"  # standard, minmax, robust
+      outlier_detection: true
+      outlier_method: "iqr"      # iqr, zscore, isolation_forest
+      outlier_threshold: 3.0
+      
+    # Configuración de ventana de datos
+    collection:
+      history_hours: 24          # horas de historial para entrenamiento
+      inference_minutes: 30      # minutos de datos para inferencia
+      sampling_interval: "30s"   # intervalo de muestreo

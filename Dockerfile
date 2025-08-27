@@ -1,33 +1,31 @@
-# Multi-stage build optimizado para Mamba
-FROM mambaorg/micromamba:0.15.3 as base
+FROM python:3.8-slim
 
-# Configurar micromamba
-ENV MAMBA_ROOT_PREFIX=/opt/conda
-ENV PATH=$MAMBA_ROOT_PREFIX/bin:$PATH
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Crear usuario y directorio de trabajo
-USER root
-RUN mkdir -p /app && chown $MAMBA_USER:$MAMBA_USER /app
+# Crear usuario no-root
+RUN useradd --create-home --shell /bin/bash anomaly_user
+
 WORKDIR /app
 
-# Copiar environment.yml
-COPY environment.yml .
+# Copiar requirements y instalar dependencias Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalar ambiente con micromamba (súper rápido)
-USER $MAMBA_USER
-RUN micromamba env create -f environment.yml && \
-    micromamba clean --all --yes
+# Copiar código fuente
+COPY src/ ./src/
+COPY config/ ./config/
+COPY scripts/ ./scripts/
 
-# Activar ambiente
-ENV PATH=/opt/conda/envs/tv-anomaly-detection/bin:$PATH
+# Crear directorios necesarios
+RUN mkdir -p models/ logs/ && \
+    chown -R anomaly_user:anomaly_user /app
 
-# Copiar código fuente  
-COPY --chown=$MAMBA_USER:$MAMBA_USER src/ ./src/
-COPY --chown=$MAMBA_USER:$MAMBA_USER config/ ./config/
-COPY --chown=$MAMBA_USER:$MAMBA_USER scripts/ ./scripts/
-
-# Crear directorios para runtime
-RUN mkdir -p models logs
+# Cambiar a usuario no-root
+USER anomaly_user
 
 # Exponer puerto
 EXPOSE 8080
