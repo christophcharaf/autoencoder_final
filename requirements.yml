@@ -7,5 +7,6 @@ dependencies:
   - pyyaml
   - python-dotenv
   - joblib
+  - seaborn
   - pip:
       - prometheus-api-client

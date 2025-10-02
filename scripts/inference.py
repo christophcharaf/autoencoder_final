@@ -136,7 +136,7 @@ class AnomalyDetectionService:
         timestamps = pd.date_range(
             start=current_time - timedelta(minutes=30),
             end=current_time,
-            freq='30S'
+            freq='30s'
         )
         
         np.random.seed(int(current_time.timestamp()) % 1000)

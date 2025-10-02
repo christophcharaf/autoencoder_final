@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
+from keras import layers
 import numpy as np
 from typing import List, Tuple
 
@@ -109,15 +109,46 @@ class LSTMAutoencoder:
     
     def save(self, filepath: str):
         """Guarda el modelo entrenado"""
-        self.model.save(filepath)
+        import json
+        import os
+        
+        # Guardar solo los pesos (más estable) - USAR .weights.h5
+        weights_path = filepath.replace('.h5', '.weights.h5')
+        self.model.save_weights(weights_path)
+        
+        # Guardar configuración de la arquitectura
+        config_path = filepath.replace('.h5', '_config.json')
+        config = {
+            'input_shape': self.input_shape,
+            'encoder_layers': self.encoder_layers,
+            'decoder_layers': self.decoder_layers,
+            'dropout': self.dropout
+        }
+        with open(config_path, 'w') as f:
+            json.dump(config, f)
+        
+        print(f"Modelo guardado en {weights_path} y {config_path}")
     
     def load(self, filepath: str):
         """Carga modelo previamente entrenado"""
-        self.model = keras.models.load_model(filepath)
+        import json
         
-        # Reconstruir encoder
-        latent_layer = self.model.get_layer('latent')
-        self.encoder = keras.Model(
-            inputs=self.model.input,
-            outputs=latent_layer.output
-        )
+        # Cargar configuración
+        config_path = filepath.replace('.h5', '_config.json')
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Reconstruir arquitectura
+        self.input_shape = tuple(config['input_shape'])
+        self.encoder_layers = config['encoder_layers']
+        self.decoder_layers = config['decoder_layers']
+        self.dropout = config['dropout']
+        
+        # Construir modelo
+        self._build_model()
+        
+        # Cargar pesos - USAR .weights.h5
+        weights_path = filepath.replace('.h5', '.weights.h5')
+        self.model.load_weights(weights_path)
+        
+        print(f"Modelo cargado desde {weights_path}")
