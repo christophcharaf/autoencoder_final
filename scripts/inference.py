@@ -75,7 +75,7 @@ class AnomalyDetectionService:
             self.windower = WindowGenerator(window_size=window_size)
             
             # Cargar modelo
-            if os.path.exists('models/lstm_autoencoder.h5'):
+            if os.path.exists('models/lstm_autoencoder.weights.h5') and os.path.exists('models/lstm_autoencoder_config.json'):
                 n_features = len(self.preprocessor.feature_columns) if self.preprocessor.feature_columns else 5
                 input_shape = (window_size, n_features)
                 

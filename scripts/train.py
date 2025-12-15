@@ -25,11 +25,11 @@ def generate_synthetic_data() -> pd.DataFrame:
     Genera datos sintéticos para desarrollo
     """
     start_time = datetime.now() - timedelta(days=7)
-    timestamps = pd.date_range(start=start_time, periods=20160, freq='30S')
+    timestamps = pd.date_range(start=start_time, periods=20160, freq='30s')
     
     np.random.seed(42)
     n_points = len(timestamps)
-    
+     
     # Patrón base con ciclo diario
     hours = np.array([ts.hour for ts in timestamps])
     daily_pattern = 0.5 + 0.3 * np.sin(2 * np.pi * hours / 24)

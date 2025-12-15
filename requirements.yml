@@ -1,3 +1,4 @@
+name: autoencoder
 dependencies:
   - numpy
   - pandas
