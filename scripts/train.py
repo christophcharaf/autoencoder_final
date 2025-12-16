@@ -29,7 +29,7 @@ def generate_synthetic_data() -> pd.DataFrame:
     
     np.random.seed(42)
     n_points = len(timestamps)
-     
+    
     # Patrón base con ciclo diario
     hours = np.array([ts.hour for ts in timestamps])
     daily_pattern = 0.5 + 0.3 * np.sin(2 * np.pi * hours / 24)
@@ -60,7 +60,7 @@ def main():
     logger.info("=== Iniciando entrenamiento MVP ===")
     
     config = Config()
-    
+    print(f"DEBUG - Full config: {config.config}")  # See what was loaded
     # 1. Recopilar datos
     logger.info("Recopilando datos...")
     
@@ -106,7 +106,7 @@ def main():
     logger.info("Training LSTM Autoencoder...")
     
     input_shape = (X_train.shape[1], X_train.shape[2])
-    encoder_layers = config.get('model.encoder_layers', [64, 32, 16])
+    encoder_layers = config.get('model.architecture.encoder_layers', [64, 32, 16])
     decoder_layers = config.get('model.decoder_layers', [16, 32, 64])
     
     model = LSTMAutoencoder(
@@ -115,8 +115,8 @@ def main():
         decoder_layers=decoder_layers
     )
     
-    epochs = config.get('model.epochs', 50)
-    batch_size = config.get('model.batch_size', 32)
+    epochs = config.get('model.training.epochs', 50)
+    batch_size = config.get('model.training.batch_size', 32)
     
     history = model.train(
         X_train=X_train,

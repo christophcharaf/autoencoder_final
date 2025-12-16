@@ -34,7 +34,12 @@ class Config:
         for config_file in config_dir.glob("*.yaml"):
             with open(config_file, 'r') as f:
                 config_name = config_file.stem
-                configs[config_name] = yaml.safe_load(f)
+                file_content = yaml.safe_load(f)
+                # Flatten the nested structure (e.g., {'model': {...}} -> store as 'model')
+                if isinstance(file_content, dict) and config_name in file_content:
+                    configs[config_name] = file_content[config_name]
+                else:
+                    configs[config_name] = file_content
         
         # Override con variables de entorno
         configs = self._apply_env_overrides(configs)
