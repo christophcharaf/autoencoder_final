@@ -8,7 +8,7 @@ class GrafanaLinkGenerator:
     
     def __init__(self, base_url: str, dashboard_uid: str = None):
         self.base_url = base_url.rstrip('/')
-        self.dashboard_uid = dashboard_uid or "anomaly-detection"
+        self.dashboard_uid = dashboard_uid or "tv-metrics-dashboard"
     
     def generate_anomaly_link(self, detection_time: str, 
                             time_range_minutes: int = 30) -> str:
@@ -28,6 +28,6 @@ class GrafanaLinkGenerator:
         annotation = f"anomaly_detected_at_{int(detection_dt.timestamp())}"
         params += f"&var-annotation={quote(annotation)}"
         
-        url = f"{self.base_url}/d/{self.dashboard_uid}/tv-over-ip-anomaly-detection?{params}"
+        url = f"{self.base_url}/d/{self.dashboard_uid}?{params}"
         
         return url

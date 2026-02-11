@@ -11,3 +11,4 @@ dependencies:
   - seaborn
   - pip:
       - prometheus-api-client
+      - prometheus_client

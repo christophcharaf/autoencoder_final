@@ -47,20 +47,51 @@ class Config:
         return configs
     
     def _apply_env_overrides(self, configs: Dict) -> Dict:
-        """Aplica overrides desde variables de entorno"""
+        """Aplica overrides desde variables de entorno y expande placeholders"""
+        # First, expand any ${VAR} placeholders in the config values
+        configs = self._expand_env_vars(configs)
+        
         # Prometheus
         if os.getenv('PROMETHEUS_URL'):
             if 'data' not in configs:
                 configs['data'] = {}
-            configs['data']['prometheus_url'] = os.getenv('PROMETHEUS_URL')
+            if 'prometheus' not in configs['data']:
+                configs['data']['prometheus'] = {}
+            configs['data']['prometheus']['url'] = os.getenv('PROMETHEUS_URL')
         
         # Opsgenie
         if os.getenv('OPSGENIE_API_KEY'):
             if 'alerting' not in configs:
                 configs['alerting'] = {}
-            configs['alerting']['opsgenie'] = {'api_key': os.getenv('OPSGENIE_API_KEY')}
+            if 'opsgenie' not in configs['alerting']:
+                configs['alerting']['opsgenie'] = {}
+            configs['alerting']['opsgenie']['api_key'] = os.getenv('OPSGENIE_API_KEY')
+        
+        # Grafana
+        if os.getenv('GRAFANA_URL'):
+            if 'alerting' not in configs:
+                configs['alerting'] = {}
+            if 'grafana' not in configs['alerting']:
+                configs['alerting']['grafana'] = {}
+            configs['alerting']['grafana']['base_url'] = os.getenv('GRAFANA_URL')
         
         return configs
+    
+    def _expand_env_vars(self, obj: Any) -> Any:
+        """Recursively expand ${VAR} placeholders with environment variable values"""
+        if isinstance(obj, dict):
+            return {k: self._expand_env_vars(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._expand_env_vars(item) for item in obj]
+        elif isinstance(obj, str):
+            # Expand ${VAR} or $VAR patterns
+            import re
+            def replace_var(match):
+                var_name = match.group(1)
+                return os.getenv(var_name, match.group(0))  # Keep original if not found
+            return re.sub(r'\$\{([^}]+)\}', replace_var, obj)
+        else:
+            return obj
     
     def _get_default_config(self) -> Dict:
         """Configuración por defecto para desarrollo"""

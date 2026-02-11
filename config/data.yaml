@@ -1,8 +1,8 @@
 data:
   # Configuración Prometheus
   prometheus:
-    url: "${PROMETHEUS_URL}"
-    token: "${PROMETHEUS_TOKEN}"
+    url: "http://prometheus:9090"
+    token: ""
     timeout_seconds: 30
     
   # Métricas a recopilar
@@ -50,6 +50,6 @@ data:
       
     # Configuración de ventana de datos
     collection:
-      history_hours: 24          # horas de historial para entrenamiento
-      inference_minutes: 30      # minutos de datos para inferencia
+      history_hours: 168         # horas de historial para entrenamiento (7 días, using synthetic data that matches real patterns)
+      inference_minutes: 10      # minutos de datos para inferencia (matches window_size: 10min = 20 timesteps × 30s)
       sampling_interval: "30s"   # intervalo de muestreo

@@ -26,8 +26,37 @@ class OpsgenieClient:
         error_value = detection_result['reconstruction_error']
         threshold = detection_result['threshold']
         confidence = detection_result.get('confidence', 0)
+        is_escalation = detection_result.get('is_escalation', False)
         
-        description = f"""
+        # Check if this is an escalation alert
+        if is_escalation:
+            duration = detection_result.get('duration_minutes', 0)
+            initial_error = detection_result.get('initial_error', error_value)
+            
+            description = f"""
+⚠️ ESCALATION: Anomalía continúa activa en servicio TV-over-IP
+
+⏱️ Duración: {duration} minutos
+🔍 Detalles:
+- Error actual: {error_value:.4f}
+- Error inicial: {initial_error:.4f}
+- Umbral: {threshold:.4f}
+- Confianza: {confidence:.2f}
+- Timestamp: {detection_result['timestamp']}
+
+📊 Métricas afectadas:
+{self._format_metrics_comparison(detection_result)}
+            """.strip()
+            
+            alert_payload = {
+                'message': f'⚠️ ESCALATION: TV-over-IP Anomaly ongoing for {duration} minutes',
+                'description': description,
+                'priority': 'P2',  # Bump priority for escalations
+                'tags': ['anomaly-detection', 'tv-over-ip', 'lstm-autoencoder', 'escalation'],
+            }
+        else:
+            # Normal anomaly alert
+            description = f"""
 Anomalía detectada en servicio TV-over-IP
 
 🔍 Detalles:
@@ -38,13 +67,13 @@ Anomalía detectada en servicio TV-over-IP
 
 📊 Métricas afectadas:
 {self._format_metrics_comparison(detection_result)}
-        """.strip()
-        
-        alert_payload = {
-            'message': 'Anomalía detectada en TV-over-IP',
-            'description': description,
-            'priority': self._determine_priority(confidence),
-            'tags': ['anomaly-detection', 'tv-over-ip', 'lstm-autoencoder'],
+            """.strip()
+            
+            alert_payload = {
+                'message': 'Anomalía detectada en TV-over-IP',
+                'description': description,
+                'priority': self._determine_priority(confidence),
+                'tags': ['anomaly-detection', 'tv-over-ip', 'lstm-autoencoder'],
             'details': {
                 'reconstruction_error': error_value,
                 'threshold': threshold,
@@ -118,3 +147,50 @@ Anomalía detectada en servicio TV-over-IP
             return "\n".join(comparison[:5])
         
         return "No se pudieron procesar las métricas"
+    
+    def create_resolved_alert(self, resolved_data: Dict) -> Dict:
+        """Create resolved notification in Opsgenie"""
+        duration = resolved_data.get('duration_seconds', 0)
+        duration_str = f"{duration//60}m {duration%60}s"
+        
+        description = f"""
+Anomalía resuelta en servicio TV-over-IP
+
+✅ Estado: Resuelto
+⏱️ Duración: {duration_str}
+🆔 Anomaly ID: {resolved_data.get('anomaly_id', 'N/A')}
+📊 Error inicial: {resolved_data.get('initial_error', 0):.4f}
+        """.strip()
+        
+        alert_payload = {
+            'message': '✅ Anomalía resuelta en TV-over-IP',
+            'description': description,
+            'priority': 'P5',
+            'tags': ['anomaly-detection', 'tv-over-ip', 'resolved'],
+            'details': {
+                'status': 'resolved',
+                'duration_seconds': duration,
+                'initial_error': resolved_data.get('initial_error'),
+                'anomaly_id': resolved_data.get('anomaly_id'),
+                'resolved_at': resolved_data.get('timestamp')
+            }
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/v2/alerts",
+                headers=self.headers,
+                data=json.dumps(alert_payload),
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            return {
+                'status': 'success',
+                'alert_id': response.json().get('requestId')
+            }
+        except requests.exceptions.RequestException as e:
+            return {
+                'status': 'error',
+                'error': str(e)
+            }

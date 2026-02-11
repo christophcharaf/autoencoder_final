@@ -2,7 +2,7 @@ alerting:
   # Configuración de threshold
   threshold:
     method: "percentile"     # percentile, fixed, adaptive
-    percentile: 95           # para método percentile
+    percentile: 99.5         # para método percentile (increased to reduce false positives)
     fixed_value: null        # para método fixed
     adaptive_window: 168     # horas para método adaptativo
     
@@ -16,12 +16,18 @@ alerting:
   # Configuración Grafana
   grafana:
     base_url: "${GRAFANA_URL}"
-    dashboard_uid: "anomaly-detection"
+    dashboard_uid: "tv-metrics-dashboard"
     default_time_range: "30m"
     refresh_interval: "30s"
     
   # Control de alertas
   rate_limiting:
-    min_interval_seconds: 300  # 5 minutos entre alertas
-    max_alerts_per_hour: 10
-    enable_deduplication: true
+    min_interval_seconds: 300                      # Min time between Opsgenie alerts (same anomaly)
+    max_alerts_per_hour: 10                        # Not yet implemented (future)
+    enable_deduplication: true                     # Enable smart anomaly tracking
+    min_confidence: 0.25                           # Minimum confidence to alert (25% above threshold)
+    severity_tolerance: 0.2                        # ±20% for same anomaly detection
+    heartbeat_interval_seconds: 180                # Log ongoing status every 3 minutes
+    send_resolved_notification: true               # Send alert when anomaly clears
+    escalation_threshold_minutes: 30               # Re-alert if anomaly persists 30+ minutes
+    escalation_interval_minutes: 15                # Re-alert every 15 minutes after first escalation
