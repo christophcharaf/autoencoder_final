@@ -125,6 +125,10 @@ class AnomalyDetectionService:
             self.min_alert_interval = self.config.get('alerting.rate_limiting.min_interval_seconds', 300)
             self.inference_minutes = self.config.get('data.features.collection.inference_minutes', 30)
             
+            # Metric queries and sampling interval from config
+            self.metric_queries = self.config.get('data.metrics.queries', None)
+            self.sampling_interval = self.config.get('data.features.collection.sampling_interval', '30s')
+            
             # Alert deduplication config
             self.dedup_enabled = self.config.get('alerting.rate_limiting.enable_deduplication', True)
             self.min_confidence = self.config.get('alerting.rate_limiting.min_confidence', 0.10)
@@ -188,7 +192,15 @@ class AnomalyDetectionService:
             # Cliente Opsgenie (opcional)
             opsgenie_key = self.config.get('alerting.opsgenie.api_key')
             if opsgenie_key and opsgenie_key != "your_api_key_here":
-                self.opsgenie_client = OpsgenieClient(opsgenie_key)
+                opsgenie_base_url = self.config.get('alerting.opsgenie.base_url', 'https://api.opsgenie.com')
+                opsgenie_timeout = self.config.get('alerting.opsgenie.timeout_seconds', 10)
+                opsgenie_priority_thresholds = self.config.get('alerting.opsgenie.priority_thresholds', None)
+                self.opsgenie_client = OpsgenieClient(
+                    opsgenie_key,
+                    base_url=opsgenie_base_url,
+                    timeout=opsgenie_timeout,
+                    priority_thresholds=opsgenie_priority_thresholds
+                )
                 self.logger.info("Opsgenie client initialized")
             else:
                 self.logger.warning("Opsgenie not configured - alerts will be logged only")
@@ -212,7 +224,7 @@ class AnomalyDetectionService:
             try:
                 # Convert inference_minutes to hours
                 hours_back = self.inference_minutes / 60.0
-                df = self.prometheus_client.get_tv_metrics(hours_back=hours_back)
+                df = self.prometheus_client.get_tv_metrics(hours_back=hours_back, queries=self.metric_queries, step=self.sampling_interval)
                 if not df.empty:
                     return df
             except Exception as e:
@@ -232,28 +244,31 @@ class AnomalyDetectionService:
         np.random.seed(int(current_time.timestamp()) % 1000)
         n_points = len(timestamps)
         
-        # Use same daily pattern as mock service and training data
-        # Peak at 20:00 (8 PM) for evening TV watching
+        # Daily pattern matching mock service and training generator
+        # Peak at hour 14 (2 PM), trough at hour 2 (2 AM)
         hours = np.array([ts.hour for ts in timestamps])
         base_pattern = 0.5 + 0.4 * np.sin(2 * np.pi * (hours - 8) / 24)
         
-        # Ocasionalmente introducir anomalías para testing
+        # Occasionally inject anomalies for testing
         anomaly_multiplier = 1.0
         if np.random.random() < 0.05:
             anomaly_multiplier = np.random.uniform(2.0, 5.0)
             self.logger.info(f"Injecting synthetic anomaly with multiplier {anomaly_multiplier:.2f}")
         
-        # Match the scale of real Prometheus data
+        # Verified formulas matching real Prometheus data (same as training generator)
+        # Memory: noisy constant, no daily cycle
+        base_memory = np.random.uniform(500_000_000, 1_500_000_000)
+        
         data = {
             'timestamp': timestamps,
-            'request_rate': (base_pattern * 100 + 50) * anomaly_multiplier + np.random.normal(0, 5, n_points),
-            'latency_p95': (base_pattern * 1.2 + 0.3) * anomaly_multiplier + np.random.normal(0, 0.15, n_points),
-            'memory_usage': (base_pattern * 5e8 + 1e9) * anomaly_multiplier + np.random.normal(0, 1e8, n_points),
-            'error_rate': (base_pattern * 2 + 1) * anomaly_multiplier + np.random.exponential(0.2, n_points),
-            'cpu_usage': base_pattern * 0.15 + 0.05 + np.random.normal(0, 0.02, n_points)
+            'request_rate': (125 * base_pattern) * anomaly_multiplier + np.random.normal(0, 3, n_points),
+            'latency_p95': (0.22 * base_pattern + 0.215) * anomaly_multiplier + np.random.normal(0, 0.015, n_points),
+            'memory_usage': (base_memory) * anomaly_multiplier + np.random.normal(0, base_memory * 0.03, n_points),
+            'error_rate': (2.5 * base_pattern) * anomaly_multiplier + np.random.normal(0, 0.05, n_points),
+            'cpu_usage': 0.125 * base_pattern + np.random.normal(0, 0.005, n_points)
         }
         
-        for col in ['request_rate', 'latency_p95', 'error_rate']:
+        for col in ['request_rate', 'latency_p95', 'error_rate', 'memory_usage', 'cpu_usage']:
             data[col] = np.maximum(data[col], 0)
         
         return pd.DataFrame(data)
@@ -519,7 +534,7 @@ class AnomalyDetectionService:
             self.logger.warning(f"   {col}: {value_str}")
         
         # Show average over the window for comparison
-        self.logger.warning("📈 Average (5-min window):")
+        self.logger.warning("📈 Average (inference window):")
         for col in metric_cols:
             avg = data[col].mean()
             if 'memory' in col:
