@@ -275,7 +275,7 @@ curl http://localhost:8000/metrics | head -20
 # Inyectar pico de latencia (120 segundos)
 curl -X POST http://localhost:8000/anomaly \
   -H "Content-Type: application/json" \
-  -d '{"type": "latency_spike", "duration": 120, "severity": "high"}'
+  -d '{"type": "latency_spike", "duration": 120}'
 
 # Inyectar ráfaga de errores
 curl -X POST http://localhost:8000/anomaly \
@@ -315,7 +315,7 @@ curl -X POST http://localhost:8000/anomaly \
 
 ### La anomalía fue inyectada pero el detector no la reporta
 
-1. **Ventana de datos:** El detector usa una ventana de 5 minutos. La anomalía puede tardar 1-2 ciclos (30-60 segundos) en aparecer.
+1. **Ventana de datos:** El detector usa una ventana de 10 minutos. La anomalía puede tardar 1-2 ciclos (30-60 segundos) en aparecer.
 2. **Confianza insuficiente:** Si la anomalía es leve, el confidence puede estar por debajo del `min_confidence`. Verificar en los logs de DEBUG.
 3. **Métrica no monitoreada:** Verificar que el tipo de anomalía afecta una de las 5 métricas monitoreadas (`request_rate`, `latency_p95`, `memory_usage`, `error_rate`, `cpu_usage`).
 

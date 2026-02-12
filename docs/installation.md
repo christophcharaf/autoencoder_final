@@ -69,7 +69,7 @@ docker-compose ps
 | Mock Service | `localhost:8000` | Servicio simulado de TV-over-IP con métricas Prometheus |
 | Prometheus | `localhost:9090` | Recolección y almacenamiento de métricas |
 | Grafana | `localhost:3000` | Visualización de métricas (usuario: `admin`, contraseña: `admin`) |
-| Anomaly Detector | - | Detección de anomalías con LSTM Autoencoder |
+| Anomaly Detector | (interno) | Detección de anomalías con LSTM Autoencoder (sin HTTP expuesto) |
 
 ### 4. Entrenamiento del Modelo
 
@@ -117,7 +117,7 @@ docker logs tv-anomaly-detector --tail 20
 # Inyectar una anomalía de prueba
 curl -X POST http://localhost:8000/anomaly \
   -H "Content-Type: application/json" \
-  -d '{"type": "latency_spike", "duration": 120, "severity": "high"}'
+  -d '{"type": "latency_spike", "duration": 120}'
 
 # Ver anomalías activas en el mock service
 curl http://localhost:8000/anomaly
@@ -152,7 +152,7 @@ curl -X POST http://localhost:8000/anomaly/clear
 ```yaml
 collection:
   history_hours: 168        # Historial para entrenamiento (7 días)
-  inference_minutes: 5      # Ventana de datos para inferencia
+  inference_minutes: 10     # Ventana de datos para inferencia (matches window_size: 20 × 30s)
   sampling_interval: "30s"  # Intervalo de muestreo
 ```
 

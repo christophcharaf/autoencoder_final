@@ -3,17 +3,24 @@ Data Preprocessor for LSTM Autoencoder
 
 This module handles data preprocessing for the anomaly detection model:
     - Temporal feature engineering (cyclical hour encoding, day of week, etc.)
-    - Data normalization (StandardScaler or MinMaxScaler)
+    - Data normalization (StandardScaler, MinMaxScaler, or fixed-bounds MinMax)
     - Scaler persistence for inference
 
 The preprocessor ensures consistent data transformation between training
 and inference phases by saving/loading the fitted scaler.
+
+Scaling modes:
+    - 'standard': Z-score normalization fitted on training data
+    - 'minmax': MinMaxScaler fitted on training data
+    - 'fixed_minmax': MinMaxScaler with predefined bounds (data-independent).
+      This prevents the scaler from memorizing the training data distribution,
+      ensuring the model generalizes to new data (Prometheus, synthetic, etc.)
 """
 
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List
 import joblib
 
 
@@ -26,29 +33,36 @@ class DataPreprocessor:
     circular nature of time (e.g., hour 23 is close to hour 0).
     
     Attributes:
-        scaler_type: Type of scaler to use ('standard' or 'minmax')
+        scaler_type: Type of scaler to use ('standard', 'minmax', or 'fixed_minmax')
         scaler: Fitted sklearn scaler instance
         feature_columns: List of feature column names (excludes timestamp)
         temporal_features: Dict controlling which temporal features to add
+        fixed_bounds: Dict of {feature_name: [min, max]} for fixed_minmax mode
     
     Example:
-        >>> preprocessor = DataPreprocessor(scaler_type='standard')
+        >>> preprocessor = DataPreprocessor(scaler_type='fixed_minmax',
+        ...     fixed_bounds={'request_rate': [0, 150], 'cpu_usage': [0, 0.15]})
         >>> df_processed = preprocessor.fit_transform(df)
         >>> preprocessor.save_scaler('models/preprocessor.joblib')
     """
     
-    def __init__(self, scaler_type: str = 'standard', temporal_features: Dict = None):
+    def __init__(self, scaler_type: str = 'standard', temporal_features: Dict = None,
+                 fixed_bounds: Dict = None):
         """
         Initialize the data preprocessor.
         
         Args:
-            scaler_type: Normalization method - 'standard' (z-score) or 'minmax' (0-1)
+            scaler_type: Normalization method - 'standard', 'minmax', or 'fixed_minmax'
             temporal_features: Dict controlling which temporal features to generate.
                              Keys: hour_sin, hour_cos, day_of_week, is_weekend, is_night
+            fixed_bounds: Dict of {feature_name: [min, max]} for fixed_minmax mode.
+                         When provided with scaler_type='fixed_minmax', the scaler
+                         uses these bounds instead of fitting on training data.
         """
         self.scaler_type = scaler_type
         self.scaler = None
         self.feature_columns = None
+        self.fixed_bounds = fixed_bounds or {}
         
         # Default temporal feature settings (all enabled)
         self.temporal_features = temporal_features or {
@@ -58,16 +72,54 @@ class DataPreprocessor:
             'is_weekend': True,
             'is_night': True
         }
+    
+    def _create_fixed_minmax_scaler(self, feature_columns: List[str]) -> MinMaxScaler:
+        """
+        Create a MinMaxScaler with predefined bounds (no data fitting needed).
+        
+        This makes the scaler deterministic: the same raw values always produce
+        the same scaled values, regardless of which training data was used.
+        
+        Args:
+            feature_columns: Ordered list of feature column names
+            
+        Returns:
+            MinMaxScaler: Pre-configured scaler with fixed min/max
+        """
+        scaler = MinMaxScaler()
+        n_features = len(feature_columns)
+        
+        # Build min/max arrays in feature column order
+        data_min = np.zeros(n_features)
+        data_max = np.ones(n_features)
+        
+        for i, col in enumerate(feature_columns):
+            if col in self.fixed_bounds:
+                bounds = self.fixed_bounds[col]
+                data_min[i] = bounds[0]
+                data_max[i] = bounds[1]
+            else:
+                # Fallback: assume [0, 1] for unknown features
+                data_min[i] = 0.0
+                data_max[i] = 1.0
+        
+        # Manually set the scaler's internal state (bypasses fit)
+        scaler.n_features_in_ = n_features
+        scaler.data_min_ = data_min
+        scaler.data_max_ = data_max
+        scaler.data_range_ = data_max - data_min
+        scaler.scale_ = 1.0 / scaler.data_range_
+        scaler.min_ = -data_min * scaler.scale_
+        scaler.feature_names_in_ = np.array(feature_columns)
+        
+        return scaler
         
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Fit the preprocessor on training data and transform it.
         
-        This method should be called once during training to:
-            1. Add temporal features based on configuration
-            2. Identify numeric feature columns
-            3. Fit the scaler on the training data distribution
-            4. Transform the data using the fitted scaler
+        For 'fixed_minmax' mode, the scaler is configured from predefined bounds
+        rather than fitted on data, ensuring deterministic scaling.
         
         Args:
             df: Raw DataFrame with 'timestamp' column and metric columns
@@ -85,16 +137,25 @@ class DataPreprocessor:
         self.feature_columns = [col for col in numeric_cols if col != 'timestamp']
         
         # Initialize scaler based on configuration
-        if self.scaler_type == 'standard':
-            self.scaler = StandardScaler()  # Z-score normalization (mean=0, std=1)
+        if self.scaler_type == 'fixed_minmax':
+            # Deterministic scaler with predefined bounds (no data fitting)
+            self.scaler = self._create_fixed_minmax_scaler(self.feature_columns)
+        elif self.scaler_type == 'standard':
+            self.scaler = StandardScaler()
         elif self.scaler_type == 'minmax':
-            self.scaler = MinMaxScaler()    # Scale to [0, 1] range
+            self.scaler = MinMaxScaler()
         
-        # Fit scaler and transform data
+        # Fit + transform (for fixed_minmax, "fit" is a no-op since bounds are preset)
         if len(self.feature_columns) > 0:
-            df_processed[self.feature_columns] = self.scaler.fit_transform(
-                df_processed[self.feature_columns]
-            )
+            if self.scaler_type == 'fixed_minmax':
+                # Skip fit (already configured), just transform
+                df_processed[self.feature_columns] = self.scaler.transform(
+                    df_processed[self.feature_columns]
+                )
+            else:
+                df_processed[self.feature_columns] = self.scaler.fit_transform(
+                    df_processed[self.feature_columns]
+                )
         
         return df_processed
     
@@ -181,9 +242,9 @@ class DataPreprocessor:
         Save the fitted preprocessor to disk.
         
         Saves all state needed to transform new data consistently:
-            - Fitted scaler (with learned mean/std or min/max)
+            - Fitted scaler (with learned mean/std or min/max or fixed bounds)
             - Feature column names
-            - Scaler type and temporal feature configuration
+            - Scaler type, temporal feature configuration, and fixed bounds
         
         Args:
             path: File path for saving (typically .joblib extension)
@@ -192,7 +253,8 @@ class DataPreprocessor:
             'scaler': self.scaler,
             'feature_columns': self.feature_columns,
             'scaler_type': self.scaler_type,
-            'temporal_features': self.temporal_features
+            'temporal_features': self.temporal_features,
+            'fixed_bounds': self.fixed_bounds
         }, path)
     
     def load_scaler(self, path: str):
@@ -209,6 +271,7 @@ class DataPreprocessor:
         self.scaler = data['scaler']
         self.feature_columns = data['feature_columns']
         self.scaler_type = data['scaler_type']
+        self.fixed_bounds = data.get('fixed_bounds', {})
         # Handle backward compatibility for older saved preprocessors
         self.temporal_features = data.get('temporal_features', {
             'hour_sin': True,

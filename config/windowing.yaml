@@ -2,7 +2,7 @@ windowing:
   # Configuración base para MVP
   window_size: 20          # Número de timesteps en cada secuencia
                            # Tiempo cubierto: window_size × sampling_interval = 20 × 30s = 10 minutos
-  stride: 20               # Training: paso entre ventanas (20 = sin solapamiento)
+  stride: 1                # Training: paso entre ventanas (1 = max overlap, ~20x more training data)
                            # Inference: NO se usa (siempre toma los últimos window_size puntos)
   
   # Configuraciones experimentales (para Fase 2)

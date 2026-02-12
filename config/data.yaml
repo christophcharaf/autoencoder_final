@@ -6,31 +6,35 @@ data:
     timeout_seconds: 30
     
   # Métricas a recopilar
+  # Note: 'aggregation' controls how multiple time series are combined:
+  #   sum  - sum across endpoints (good for rates, counts)
+  #   max  - worst-case value (good for latency percentiles)
+  #   mean - average across instances (good for gauges like memory)
   metrics:
-    # Métricas básicas de TV-over-IP
     queries:
       - name: "request_rate"
         query: "rate(http_requests_total[5m])"
+        aggregation: "sum"
         description: "Request rate per second"
         
       - name: "latency_p95" 
-        query: "histogram_quantile(0.95, http_request_duration_seconds)"
+        query: "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))"
+        aggregation: "max"
         description: "95th percentile latency"
         
-      - name: "service_availability"
-        query: "up"
-        description: "Service availability"
-        
       - name: "memory_usage"
-        query: "process_resident_memory_bytes / 1024 / 1024 / 1024"
-        description: "Memory usage in GB"
+        query: "process_resident_memory_bytes"
+        aggregation: "mean"
+        description: "Memory usage in bytes"
         
       - name: "error_rate"
         query: "rate(http_request_errors_total[5m])"
+        aggregation: "sum"
         description: "Error rate per second"
         
       - name: "cpu_usage"
         query: "rate(process_cpu_seconds_total[5m])"
+        aggregation: "sum"
         description: "CPU usage rate"
   
   # Configuración de feature engineering
@@ -43,10 +47,33 @@ data:
       is_night: true
     
     preprocessing:
-      normalization: "standard"  # standard, minmax, robust
+      normalization: "fixed_minmax"  # standard, minmax, robust, fixed_minmax
       outlier_detection: true
       outlier_method: "iqr"      # iqr, zscore, isolation_forest
       outlier_threshold: 3.0
+      
+      # Fixed scaling bounds for deterministic normalization (used with fixed_minmax).
+      # Prevents scaler from memorizing training data distribution, ensuring
+      # the model generalizes across synthetic data, Prometheus data, and
+      # different mock service instances. Derived from mock service analysis:
+      #   request_rate: sum(rate(http_requests_total[5m])) → 125*daily_factor + noise
+      #   latency_p95:  histogram_quantile(0.95, rate(...[5m])) → 0.22*factor + 0.215
+      #   memory_usage: process_resident_memory_bytes → 400M-2B (container range)
+      #   error_rate:   sum(rate(http_request_errors_total[5m])) → 2.5*daily_factor
+      #   cpu_usage:    sum(rate(process_cpu_seconds_total[5m])) → 0.125*daily_factor
+      fixed_bounds:
+        request_rate:  [0, 150]
+        latency_p95:   [0, 0.50]
+        memory_usage:  [0, 2000000000]
+        error_rate:    [0, 3.0]
+        cpu_usage:     [0, 0.15]
+        # Temporal features are already bounded by their mathematical definition
+        hour_sin:      [-1, 1]
+        hour_cos:      [-1, 1]
+        dayofweek_sin: [-1, 1]
+        dayofweek_cos: [-1, 1]
+        is_weekend:    [0, 1]
+        is_night:      [0, 1]
       
     # Configuración de ventana de datos
     collection:

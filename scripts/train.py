@@ -179,8 +179,13 @@ def main():
         'is_weekend': True,
         'is_night': True
     })
+    fixed_bounds = config.get('data.features.preprocessing.fixed_bounds', {})
     
-    preprocessor = DataPreprocessor(scaler_type=scaler_type, temporal_features=temporal_features)
+    preprocessor = DataPreprocessor(
+        scaler_type=scaler_type,
+        temporal_features=temporal_features,
+        fixed_bounds=fixed_bounds
+    )
     df_processed = preprocessor.fit_transform(df)
     
     os.makedirs('models/', exist_ok=True)

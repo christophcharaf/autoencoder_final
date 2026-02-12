@@ -1,6 +1,5 @@
-import numpy as np
 import pandas as pd
-from typing import Dict, List
+from typing import Dict
 from datetime import datetime
 
 class AnomalyDetector:
@@ -64,33 +63,3 @@ class AnomalyDetector:
                 'reconstruction_error': 0.0,
                 'threshold': float(self.threshold)
             }
-    
-    def get_recent_detections(self, hours: int = 24) -> List[Dict]:
-        """
-        Obtiene detecciones recientes
-        """
-        cutoff_time = datetime.now().timestamp() - (hours * 3600)
-        
-        recent = []
-        for detection in self.detection_history:
-            detection_time = datetime.fromisoformat(detection['timestamp']).timestamp()
-            if detection_time > cutoff_time:
-                recent.append(detection)
-        
-        return recent
-    
-    def get_anomaly_summary(self, hours: int = 24) -> Dict:
-        """
-        Resumen de anomalías en período especificado
-        """
-        recent = self.get_recent_detections(hours)
-        anomalies = [d for d in recent if d.get('is_anomaly', False)]
-        
-        return {
-            'total_detections': len(recent),
-            'anomalies_count': len(anomalies),
-            'anomaly_rate': len(anomalies) / max(len(recent), 1),
-            'avg_reconstruction_error': np.mean([d['reconstruction_error'] for d in recent]) if recent else 0,
-            'max_reconstruction_error': max([d['reconstruction_error'] for d in recent]) if recent else 0,
-            'period_hours': hours
-        }

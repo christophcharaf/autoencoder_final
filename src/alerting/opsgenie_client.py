@@ -8,9 +8,12 @@ class OpsgenieClient:
     Cliente para enviar alertas a Opsgenie
     """
     
-    def __init__(self, api_key: str, base_url: str = "https://api.opsgenie.com"):
+    def __init__(self, api_key: str, base_url: str = "https://api.opsgenie.com",
+                 timeout: int = 10, priority_thresholds: Dict = None):
         self.api_key = api_key
         self.base_url = base_url.rstrip('/')
+        self.timeout = timeout
+        self.priority_thresholds = priority_thresholds or {'P1': 2.0, 'P2': 1.0, 'P3': 0.5}
         self.headers = {
             'Authorization': f'GenieKey {api_key}',
             'Content-Type': 'application/json'
@@ -92,7 +95,7 @@ Anomalía detectada en servicio TV-over-IP
                 f"{self.base_url}/v2/alerts",
                 headers=self.headers,
                 data=json.dumps(alert_payload),
-                timeout=10
+                timeout=self.timeout
             )
             response.raise_for_status()
             
@@ -110,12 +113,12 @@ Anomalía detectada en servicio TV-over-IP
             }
     
     def _determine_priority(self, confidence: float) -> str:
-        """Determina prioridad basada en confianza"""
-        if confidence > 2.0:
+        """Determina prioridad basada en confianza (umbrales configurables)"""
+        if confidence > self.priority_thresholds.get('P1', 2.0):
             return 'P1'
-        elif confidence > 1.0:
+        elif confidence > self.priority_thresholds.get('P2', 1.0):
             return 'P2'
-        elif confidence > 0.5:
+        elif confidence > self.priority_thresholds.get('P3', 0.5):
             return 'P3'
         else:
             return 'P4'
@@ -181,7 +184,7 @@ Anomalía resuelta en servicio TV-over-IP
                 f"{self.base_url}/v2/alerts",
                 headers=self.headers,
                 data=json.dumps(alert_payload),
-                timeout=10
+                timeout=self.timeout
             )
             response.raise_for_status()
             
