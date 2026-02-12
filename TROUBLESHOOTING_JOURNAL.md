@@ -127,7 +127,7 @@
 ## Final Configuration
 
 ### Key Settings:
-- **Inference Window:** 5 minutes (reduced from 30 to age out anomalies faster)
+- **Inference Window:** 10 minutes (see Issue #10 for window size fix)
 - **Threshold Method:** 99.5th percentile of validation reconstruction errors
 - **Threshold Value:** 0.9254
 - **Training Data:** 168 hours of synthetic data matching real patterns
@@ -160,13 +160,13 @@ System is now:
 - ✅ No false positives on normal traffic
 - ✅ Latency values matching Grafana/reality
 - ✅ Proper metric aggregation across endpoints
-- ✅ 5-minute detection window working as designed
+- ✅ 10-minute detection window working as designed (updated in Issue #10)
 
 ---
 
 ## Remaining Optional Enhancements
 
-1. **Alert Deduplication:** Track ongoing anomalies to prevent alert spam if anomaly persists beyond 5-minute window
+1. **Alert Deduplication:** Track ongoing anomalies to prevent alert spam if anomaly persists beyond 10-minute window
 2. **Adaptive Thresholds:** Dynamically adjust threshold based on recent traffic patterns
 3. **Real Data Training:** Once sufficient Prometheus history available (7+ days), retrain with real data instead of synthetic
 
@@ -337,7 +337,7 @@ rate_limiting:
 
 ⏳ **Not Fully Tested** (Code Implemented):
 - Escalation alerts (requires 30+ minutes)
-- Resolved notifications (waiting for metrics to age out of 5-min window)
+- Resolved notifications (waiting for metrics to age out of 10-min window)
 
 **Files Modified:**
 - `config/alerting.yaml`: New deduplication settings
@@ -376,7 +376,7 @@ stateDiagram-v2
 
 **Problem:** 
 After deploying the deduplication system, two issues were observed:
-1. **Cascading "severity changed" alerts during anomaly wind-down**: As an injected anomaly aged out of the 5-minute Prometheus window, the reconstruction error dropped rapidly each cycle (e.g., 16 → 11 → 8 → 6 → 4 → 2 → 1). Each drop exceeded the ±20% severity tolerance, triggering a "NEW ANOMALY (severity changed)" alert every 30 seconds -- worse than before.
+1. **Cascading "severity changed" alerts during anomaly wind-down**: As an injected anomaly aged out of the Prometheus inference window (5 min at the time, later changed to 10 min in Issue #10), the reconstruction error dropped rapidly each cycle (e.g., 16 → 11 → 8 → 6 → 4 → 2 → 1). Each drop exceeded the ±20% severity tolerance, triggering a "NEW ANOMALY (severity changed)" alert every 30 seconds -- worse than before.
 2. **Low-confidence false positives**: Normal traffic consistently produced reconstruction errors of ~1.04 against threshold 0.9254, with confidence ~0.12. The 0.10 min_confidence filter barely let these through.
 
 **Root Causes:**
@@ -528,4 +528,91 @@ Formula: `inference_minutes × (60 / sampling_interval_seconds) ≥ window_size`
 
 ---
 
-*End of Session*
+*End of Session (Feb 6)*
+
+---
+
+## Session: February 11-12, 2026
+**Focus:** Fix Data Pipeline for Real Prometheus Training
+
+### Issue #8: Prometheus Data Not Persisted
+**Problem:** The Prometheus container in `docker-compose.yml` had no data volume. All scraped metrics were lost on every `docker-compose down`, making it impossible to accumulate training data.
+
+**Fix:** Added named volume `prometheus_data:/prometheus` and aligned scrape interval from 15s to 30s to match `data.yaml` `sampling_interval`.
+
+**Files:** `docker-compose.yml`, `prometheus.yml`
+
+---
+
+### Issue #9: Synthetic Data Distribution Mismatch (Root Cause of False Positives)
+**Problem:** The model trained on synthetic data immediately flagged real Prometheus data as anomalous (reconstruction error 0.80-0.90 vs threshold 0.45). Deep analysis revealed the synthetic generator was fundamentally wrong in multiple ways.
+
+**Analysis Method:** Traced each metric from mock service Python code through Prometheus `rate()`/`histogram_quantile()` to compute exact expected ranges. Then verified against live Prometheus (predictions matched within 1-7%).
+
+**Verification at load_factor=0.114 (01:37 UTC):**
+
+| Metric | Predicted | Prometheus Actual | Accuracy |
+|--------|-----------|-------------------|----------|
+| request_rate | 14.25 | 14.43 | 98.7% |
+| error_rate | 0.285 | 0.307 | 92.3% |
+| cpu_usage | 0.0143 | 0.0153 | 93.4% |
+| memory_usage | uniform(500M-1.5B) | 1.21 GB | In range |
+| latency_p95 | 0.237 | 0.237 | 100% |
+
+**Root Causes Found:**
+
+1. **Range compression**: Synthetic request_rate was 25-75 but real range is 12.5-112.5
+2. **Offset at low load**: Synthetic values 2-3x too high during trough hours (2 AM)
+3. **Memory had false daily cycle**: Synthetic imposed a sine pattern; real memory is a noisy constant
+4. **Metrics not linked**: In mock service, error_rate = 2% of request_rate and cpu scales linearly, but synthetic treated them independently
+5. **Inference generator wildly off**: Used completely different ranges from training generator (e.g., latency 0.42-1.38 vs real 0.24-0.41)
+6. **Daily pattern peak mismatch**: Comments said "peak at 8 PM" but the sine formula `0.5 + 0.4*sin(2pi*(hour-8)/24)` actually peaks at 2 PM (hour 14)
+
+**Verified Formulas (now in code):**
+- `request_rate = 125 * daily_pattern` (mock: avg of uniform(50,200) * load)
+- `error_rate = 2.5 * daily_pattern` (mock: 2% of requests)
+- `cpu_usage = 0.125 * daily_pattern` (mock: avg of uniform(0.05,0.2) * load)
+- `memory_usage = base_memory + noise` (mock: constant base * ±10%, NO daily cycle)
+- `latency_p95 = 0.22 * daily_pattern + 0.215` (histogram bucket interpolation effect)
+
+**Files:** `scripts/train.py`, `scripts/inference.py`
+
+---
+
+### Issue #10: Prometheus query_range 400 Error on Large Ranges
+**Problem:** `query_range` with `history_hours=168` at `step=30s` produces 20,160 data points, exceeding Prometheus's 11,000-point cap per query.
+
+**Fix:** Added `_adjust_step_if_needed()` to `PrometheusClient` that auto-increases the step when the calculated point count exceeds 11,000. Logs a warning when adjustment occurs.
+
+**Files:** `src/data/prometheus_client.py`
+
+---
+
+### Issue #11: get_tv_metrics() Missing Parameters
+**Problem:** `inference.py` passed `queries=self.metric_queries` to `get_tv_metrics()` but the method didn't accept that parameter (latent TypeError). Also, neither `train.py` nor `inference.py` passed config-driven queries or sampling interval.
+
+**Fix:** Added `queries` and `step` parameters to `get_tv_metrics()` with backwards-compatible defaults. Wired up config loading in both `train.py` and `inference.py`.
+
+**Files:** `src/data/prometheus_client.py`, `scripts/train.py`, `scripts/inference.py`
+
+---
+
+### Issue #12: No Minimum-Rows Validation Before Training
+**Problem:** When Prometheus returned too few rows to form training windows (e.g., 22 rows < window_size*5=100), `train.py` crashed on `X_train.shape[2]` with 0 samples.
+
+**Fix:** Added validation after data fetch: `len(df) >= window_size * 5`. Falls back to synthetic data with a clear warning if insufficient.
+
+**Files:** `scripts/train.py`
+
+---
+
+### Lesson Learned
+When building a synthetic data generator to stand in for real metrics:
+1. **Trace the full pipeline**: Raw counters/histograms in the service -> Prometheus scraping -> PromQL transformations (rate, histogram_quantile) -> Python-side aggregation. Each step transforms the data.
+2. **Verify against reality**: Run the real stack and compare computed predictions to actual values before trusting any formula.
+3. **Keep generators in sync**: Training and inference synthetic generators must use identical formulas.
+4. **Memory and latency are not what they seem**: Memory is a gauge (not rate), so it has no daily cycle. Histogram quantile is an approximation that diverges from true percentiles depending on bucket boundaries.
+
+---
+
+*End of Session (Feb 11-12)*
