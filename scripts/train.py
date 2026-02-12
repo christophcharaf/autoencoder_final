@@ -13,9 +13,9 @@ Configuration is loaded from YAML files in the config/ directory:
     - windowing.yaml: Sliding window configuration
 
 Outputs:
-    - models/lstm_autoencoder.weights.h5: Trained model weights
-    - models/lstm_autoencoder_config.json: Model architecture config
-    - models/preprocessor.joblib: Fitted data preprocessor/scaler
+    - Model weights and config: path from config model.paths.base (default models/lstm_autoencoder.h5)
+      → creates .weights.h5 and _config.json
+    - models/preprocessor.joblib: Fitted preprocessor (scaler type from config, typically fixed_minmax)
     - models/anomaly_threshold.npy: Computed anomaly threshold
 
 Usage:
@@ -28,8 +28,6 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-
 # Add src directory to Python path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -38,74 +36,8 @@ from utils.logging import setup_logger
 from data.prometheus_client import PrometheusClient
 from data.preprocessor import DataPreprocessor
 from data.windowing import WindowGenerator
+from data.synthetic_data import generate_synthetic_data
 from models.lstm_autoencoder import LSTMAutoencoder
-
-def generate_synthetic_data(history_hours: int = 168) -> pd.DataFrame:
-    """
-    Generate synthetic training data for development and testing.
-    
-    Creates realistic TV-over-IP service metrics with daily usage patterns:
-    - Higher traffic during evening hours (peak TV watching time)
-    - Lower traffic during night hours
-    - Realistic noise and variation
-    
-    Args:
-        history_hours: Number of hours of synthetic data to generate.
-                      Default is 168 (7 days) for capturing weekly patterns.
-    
-    Returns:
-        pd.DataFrame: DataFrame with columns:
-            - timestamp: DateTime index
-            - request_rate: Requests per second (~12.5-112.5)
-            - latency_p95: 95th percentile latency in seconds (~0.24-0.41)
-            - memory_usage: Memory usage in bytes (noisy constant ~500M-1.5B)
-            - error_rate: Errors per second (~0.25-2.25)
-            - cpu_usage: CPU usage rate (~0.0125-0.1125)
-    """
-    start_time = datetime.now() - timedelta(hours=history_hours)
-    
-    # Calculate number of data points based on 30s sampling interval
-    # 2 samples per minute * 60 minutes * history_hours
-    n_periods = int(history_hours * 60 * 2)
-    timestamps = pd.date_range(start=start_time, periods=n_periods, freq='30s')
-    
-    # Use fixed seed for reproducibility
-    np.random.seed(42)
-    n_points = len(timestamps)
-    
-    # Create daily usage pattern using sine wave (matches mock service formula)
-    # Peak at hour 14 (2 PM), trough at hour 2 (2 AM)
-    # daily_pattern ranges from 0.1 to 0.9
-    hours = np.array([ts.hour for ts in timestamps])
-    daily_pattern = 0.5 + 0.4 * np.sin(2 * np.pi * (hours - 8) / 24)
-    
-    # Verified against live Prometheus at load=0.114 (01:37 UTC, 2026-02-12)
-    # Predictions matched actual values within 1-7% for all metrics.
-    # Formulas derived from mock_service/app.py simulate_traffic() → PromQL queries.
-    #
-    # request_rate = 125 * load  (mock: uniform(50,200)*load, avg=125*load)
-    # error_rate   = 2.5 * load  (mock: 2% of requests)
-    # cpu_usage    = 0.125 * load (mock: uniform(0.05,0.2)*load, avg=0.125*load)
-    # memory_usage = noisy constant (mock: base_memory * uniform(0.9,1.1), NO daily cycle)
-    # latency_p95  = histogram_quantile approx (bucket interpolation adds upward bias at higher loads)
-    
-    # Memory: noisy constant (no daily pattern), base chosen once per dataset
-    base_memory = np.random.uniform(500_000_000, 1_500_000_000)
-    
-    data = {
-        'timestamp': timestamps,
-        'request_rate': 125 * daily_pattern + np.random.normal(0, 3, n_points),            # range ~12.5-112.5 req/s
-        'latency_p95': 0.22 * daily_pattern + 0.215 + np.random.normal(0, 0.015, n_points), # range ~0.24-0.41s (histogram bucket approx)
-        'memory_usage': base_memory + np.random.normal(0, base_memory * 0.03, n_points),    # noisy constant around base (no daily cycle)
-        'error_rate': 2.5 * daily_pattern + np.random.normal(0, 0.05, n_points),            # range ~0.25-2.25 errors/s (2% of request_rate)
-        'cpu_usage': 0.125 * daily_pattern + np.random.normal(0, 0.005, n_points)            # range ~0.0125-0.1125
-    }
-    
-    # Asegurar valores positivos
-    for col in ['request_rate', 'latency_p95', 'memory_usage', 'error_rate', 'cpu_usage']:
-        data[col] = np.maximum(data[col], 0)
-    
-    return pd.DataFrame(data)
 
 def main():
     """
@@ -126,8 +58,8 @@ def main():
     
     config = Config()
     
-    # 1. Recopilar datos
-    logger.info("Recopilando datos...")
+    # 1. Collect data
+    logger.info("Collecting data...")
     
     # Read data collection settings from config
     history_hours = config.get('data.features.collection.history_hours', 168)  # Default 7 days
@@ -148,10 +80,10 @@ def main():
         # Fallback to synthetic if Prometheus returns no data (e.g., not enough history yet)
         if df.empty:
             logger.warning(f"Prometheus returned no data for {history_hours} hours. Falling back to synthetic data.")
-            df = generate_synthetic_data(history_hours)
+            df = generate_synthetic_data(history_hours=history_hours, seed=42)
     else:
         logger.warning("No Prometheus URL configured, generating synthetic data")
-        df = generate_synthetic_data(history_hours)
+        df = generate_synthetic_data(history_hours=history_hours, seed=42)
     
     if df.empty:
         logger.error("No data available for training (even synthetic generation failed)")
@@ -163,11 +95,11 @@ def main():
     if len(df) < min_rows:
         logger.warning(f"Prometheus returned only {len(df)} rows, need >= {min_rows} "
                        f"(window_size={window_size} x 5). Falling back to synthetic data.")
-        df = generate_synthetic_data(history_hours)
+        df = generate_synthetic_data(history_hours=history_hours, seed=42)
     
     logger.info(f"Data shape: {df.shape}")
     
-    # 2. Preprocesamiento
+    # 2. Preprocess
     logger.info("Preprocessing data...")
     
     # Read preprocessing config
@@ -191,7 +123,7 @@ def main():
     os.makedirs('models/', exist_ok=True)
     preprocessor.save_scaler('models/preprocessor.joblib')
     
-    # 3. Crear ventanas deslizantes
+    # 3. Create sliding windows
     logger.info("Creating sliding windows...")
     window_size = config.get('windowing.window_size', 20)
     stride = config.get('windowing.stride', 20)
@@ -208,7 +140,7 @@ def main():
     
     logger.info(f"Training samples: {X_train.shape[0]}, Validation samples: {X_val.shape[0]}")
     
-    # 5. Entrenar modelo
+    # 5. Train model
     logger.info("Training LSTM Autoencoder...")
     
     input_shape = (X_train.shape[1], X_train.shape[2])
@@ -230,7 +162,9 @@ def main():
         learning_rate=learning_rate,
         optimizer=optimizer
     )
-    
+
+    model_base = config.get('model.paths.base', 'models/lstm_autoencoder.h5')
+
     # Read training settings from config
     epochs = config.get('model.training.epochs', 50)
     batch_size = config.get('model.training.batch_size', 32)
@@ -248,11 +182,11 @@ def main():
         verbose=verbose
     )
     
-    # 6. Guardar modelo
-    model.save('models/lstm_autoencoder.h5')
-    logger.info("Model saved to models/lstm_autoencoder.h5")
+    # 6. Save model
+    model.save(model_base)
+    logger.info(f"Model saved to {model_base}")
     
-    # 7. Calcular threshold
+    # 7. Compute threshold
     logger.info("Computing anomaly threshold...")
     reconstruction_errors = model.compute_reconstruction_error(X_val)
     
@@ -266,7 +200,7 @@ def main():
     np.save('models/anomaly_threshold.npy', threshold)
     logger.info(f"Anomaly threshold: {threshold:.4f}")
     
-    # 8. Estadísticas finales
+    # 8. Final statistics
     final_loss = history['loss'][-1]
     final_val_loss = history['val_loss'][-1] if 'val_loss' in history else None
     
@@ -274,7 +208,7 @@ def main():
     if final_val_loss:
         logger.info(f"Final validation loss: {final_val_loss:.4f}")
     
-    logger.info("=== Entrenamiento completado ===")
+    logger.info("=== Training completed ===")
 
 if __name__ == "__main__":
     main()

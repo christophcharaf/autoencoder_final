@@ -25,7 +25,7 @@ Sistema de detección de anomalías en tiempo real para servicios de TV-over-IP 
 🚀 **Filtrado por confianza** (25% sobre threshold para reducir falsos positivos)  
 🚀 **Peak error tracking** para análisis post-incidente  
 🚀 **Mock service** para desarrollo y testing  
-🚀 **Zero-padding prevention** con validación de ventanas de datos  
+🚀 **Alineación de ventanas** (inference_minutes = window_size para evitar zero-padding)  
 
 ## 📋 Requisitos
 
@@ -135,9 +135,12 @@ python scripts/train.py
 
 # Archivos generados:
 # - models/lstm_autoencoder.weights.h5 (pesos del modelo)
-# - models/preprocessor.joblib (scaler entrenado)
+# - models/preprocessor.joblib (preprocessor con fixed_minmax scaler)
 # - models/anomaly_threshold.npy (threshold calculado)
-# - evaluation/model_evaluation.png (gráficas)
+
+# Evaluar modelo (genera evaluation/model_evaluation.png)
+python scripts/evaluate_model.py           # Interactivo (muestra ventana)
+python scripts/evaluate_model.py --headless  # Use --headless para CI/automación
 ```
 
 ### Detección en Tiempo Real
@@ -203,7 +206,7 @@ Normal Traffic
 
 | Archivo | Descripción | Parámetros Clave |
 |---------|-------------|------------------|
-| `config/model.yaml` | Arquitectura LSTM | encoder_layers: [64, 32, 16], dropout: 0.1 |
+| `config/model.yaml` | Arquitectura LSTM y rutas | model.paths.base, encoder_layers, dropout: 0.1 |
 | `config/windowing.yaml` | Ventanas temporales | window_size: 20 (10 min), stride: 20 |
 | `config/alerting.yaml` | Alertas y umbrales | percentile: 99.5, min_confidence: 0.25 |
 | `config/data.yaml` | Prometheus y métricas | inference_minutes: 10, history_hours: 168 |
@@ -272,7 +275,7 @@ rate_limiting:
 1. **Recolección**: Prometheus scrapes mock service cada 30s
 2. **Inferencia**: Detector consulta Prometheus cada 30s (ventana de 10 min)
 3. **Preprocesamiento**: 
-   - Normalización con StandardScaler entrenado
+   - Normalización con fixed_minmax scaler
    - Feature engineering (6 features temporales)
    - Sliding window (20 timesteps × 30s = 10 min)
 4. **Modelo**: LSTM Autoencoder reconstruye secuencia
@@ -300,7 +303,7 @@ Ver documentación completa para:
 
 - **[Guía de Instalación](docs/installation.md)** - Setup completo paso a paso
 - **[Troubleshooting](docs/troubleshooting.md)** - Problemas comunes y soluciones
-- **[Diario de Issues](TROUBLESHOOTING_JOURNAL.md)** - 10 issues documentados con resoluciones
+- **[Diario de Issues](TROUBLESHOOTING_JOURNAL.md)** - 15 issues documentados con resoluciones
 
 ### Issues Destacados (Resueltos)
 
@@ -344,6 +347,12 @@ Ver [docs/troubleshooting.md](docs/troubleshooting.md) para más información.
 ### Unit Tests
 ```bash
 pytest tests/unit/
+```
+
+### Evaluation Script
+Use `--headless` for CI/automation to avoid blocking on plot display:
+```bash
+python scripts/evaluate_model.py --headless
 ```
 
 ### Integration Tests

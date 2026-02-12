@@ -28,15 +28,13 @@ config/local*.yaml
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Docker
-.dockerignore
 
 # Archivos temporales
 *.tmp

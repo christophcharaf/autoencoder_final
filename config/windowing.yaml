@@ -3,17 +3,10 @@ windowing:
   window_size: 20          # Número de timesteps en cada secuencia
                            # Tiempo cubierto: window_size × sampling_interval = 20 × 30s = 10 minutos
   stride: 1                # Training: paso entre ventanas (1 = max overlap, ~20x more training data)
-                           # Inference: NO se usa (siempre toma los últimos window_size puntos)
+                           # Inference: NO se usa (siempre toma los últimos window_size )
+                           #
+                           # Why stride=1? (Troubleshooting Issue 4) Originally stride=20 (non-overlapping).
+                           # Model showed 100% false positive rate on Prometheus data. Fix: fixed_minmax
+                           # scaler + stride=1. 20x more windows → better LSTM representation of normal
+                           # patterns → training loss 0.0021, Prometheus MSE 0.005, 80.5% headroom.
   
-  # Configuraciones experimentales (para Fase 2)
-  experimental:
-    enable_overlap: false  # deshabilitado en MVP
-    stride_options: [1, 3, 5, 10, 20]
-    window_size_options: [15, 20, 25, 30]
-  
-  # Multi-escala (futuro)
-  multi_scale:
-    enable: false
-    short_window: 10       # 5 min - anomalías agudas
-    medium_window: 20      # 10 min - degradación gradual  
-    long_context: 120      # 60 min - contexto estacional

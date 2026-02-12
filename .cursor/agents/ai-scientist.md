@@ -37,7 +37,8 @@ You are an ML/AI scientist specializing in time series anomaly detection, workin
 
 ### Inference pipeline
 - **Detection cycle**: Every 30 seconds
-- **Data window**: Last `inference_minutes` (default 10min) from Prometheus, take last 20 points
+- **Data window**: Last `inference_minutes` (default 10min from config) from Prometheus, take last 20 points
+- **Confidence filter**: `min_confidence` 0.25 (25% above threshold) — filters marginal detections before alerting
 - **Zero-padding**: If fewer than window_size points, pads with zeros (degrades accuracy)
 - **Rate warm-up**: `rate()[5m]` needs ~5 minutes of scrapes to stabilize after cold start
 - **File**: `scripts/inference.py`

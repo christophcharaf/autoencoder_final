@@ -88,9 +88,17 @@ python scripts/train.py
 |---------|-------------|
 | `models/lstm_autoencoder.weights.h5` | Pesos del modelo LSTM Autoencoder |
 | `models/lstm_autoencoder_config.json` | Configuración de arquitectura |
-| `models/preprocessor.joblib` | Scaler de normalización (StandardScaler) |
+| `models/preprocessor.joblib` | Preprocessor con fixed_minmax scaler |
 | `models/anomaly_threshold.npy` | Umbral de detección calculado |
-| `evaluation/model_evaluation.png` | Gráficas de evaluación del modelo |
+
+**Evaluación del modelo (opcional):** Para generar gráficas de evaluación:
+
+```bash
+python scripts/evaluate_model.py           # Interactivo (muestra ventana)
+python scripts/evaluate_model.py --headless  # Sin display (CI/automación)
+```
+
+Genera `evaluation/model_evaluation.png` en ambos casos.
 
 ### 5. Iniciar Detección de Anomalías
 
@@ -176,16 +184,19 @@ rate_limiting:
 
 #### Modelo (`config/model.yaml`)
 ```yaml
-architecture:
-  encoder_layers: [64, 32, 16]
-  decoder_layers: [16, 32, 64]
-  activation: "tanh"
-  dropout: 0.1
-training:
-  batch_size: 32
-  epochs: 30
-  early_stopping: true
-  patience: 10
+model:
+  paths:
+    base: models/lstm_autoencoder.h5   # Base path; scripts derive .weights.h5 and _config.json
+  architecture:
+    encoder_layers: [64, 32, 16]
+    decoder_layers: [16, 32, 64]
+    activation: "tanh"
+    dropout: 0.1
+  training:
+    batch_size: 32
+    epochs: 30
+    early_stopping: true
+    patience: 10
 ```
 
 ## Despliegue en Producción

@@ -4,7 +4,17 @@ from datetime import datetime
 
 def setup_logger(name: str = "anomaly_detection", level: str = "INFO") -> logging.Logger:
     """
-    Configura logger para el sistema - sin duplicados
+    Configure the application logger with console output.
+
+    Prevents duplicate log messages by disabling propagation and clearing
+    existing handlers before adding a new console handler.
+
+    Args:
+        name: Logger name (default: "anomaly_detection").
+        level: Log level string (default: "INFO"). Uses standard names: DEBUG, INFO, WARNING, ERROR.
+
+    Returns:
+        logging.Logger: Configured logger instance.
     """
     # Disable root logger to prevent duplicate messages
     logging.root.handlers = []

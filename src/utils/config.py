@@ -1,28 +1,30 @@
-import yaml
+"""
+Configuration loader for the LSTM Autoencoder anomaly detection system.
 
-import yaml
+Loads YAML files from config/ and applies environment variable overrides.
+Supports dot-notation access (e.g., config.get('data.prometheus.url')).
+"""
+
 import os
-from typing import Dict, Any
+import re
+import yaml
 from pathlib import Path
+from typing import Any, Dict
 
-# Ensure prometheus-api-client is installed
-try:
-    import prometheus_api_client
-except ImportError:
-    import subprocess
-    import sys
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'prometheus-api-client'])
-    import prometheus_api_client
+
 class Config:
     def __init__(self, config_path: str = None):
         """
-        Carga configuración desde archivos YAML y variables de entorno
-        """ 
+        Load configuration from YAML files and environment variables.
+
+        Args:
+            config_path: Directory containing YAML config files. Defaults to 'config/'.
+        """
         self.config_path = config_path or "config/"
         self.config = self._load_all_configs()
-    
+
     def _load_all_configs(self) -> Dict[str, Any]:
-        """Carga todos los archivos de configuración"""
+        """Load all YAML configuration files from the config directory."""
         configs = {}
         config_dir = Path(self.config_path)
         
@@ -30,7 +32,6 @@ class Config:
             print(f"Warning: Config directory {config_dir} not found")
             return self._get_default_config()
         
-        # Cargar archivos YAML
         for config_file in config_dir.glob("*.yaml"):
             with open(config_file, 'r') as f:
                 config_name = config_file.stem
@@ -41,13 +42,13 @@ class Config:
                 else:
                     configs[config_name] = file_content
         
-        # Override con variables de entorno
+        # Apply environment variable overrides
         configs = self._apply_env_overrides(configs)
         
         return configs
     
     def _apply_env_overrides(self, configs: Dict) -> Dict:
-        """Aplica overrides desde variables de entorno y expande placeholders"""
+        """Apply overrides from environment variables and expand ${VAR} placeholders."""
         # First, expand any ${VAR} placeholders in the config values
         configs = self._expand_env_vars(configs)
         
@@ -84,8 +85,6 @@ class Config:
         elif isinstance(obj, list):
             return [self._expand_env_vars(item) for item in obj]
         elif isinstance(obj, str):
-            # Expand ${VAR} or $VAR patterns
-            import re
             def replace_var(match):
                 var_name = match.group(1)
                 return os.getenv(var_name, match.group(0))  # Keep original if not found
@@ -94,11 +93,10 @@ class Config:
             return obj
     
     def _get_default_config(self) -> Dict:
-        """Configuración por defecto para desarrollo"""
+        """Default configuration for development when config directory is missing."""
         return {
             'windowing': {
                 'window_size': 20,
-                'step_size': 30,
                 'stride': 20
             },
             'model': {
@@ -113,7 +111,16 @@ class Config:
         }
     
     def get(self, key: str, default=None):
-        """Obtiene valor de configuración usando dot notation"""
+        """
+        Get configuration value using dot notation.
+
+        Args:
+            key: Dot-separated path (e.g., 'data.prometheus.url').
+            default: Value to return if key not found.
+
+        Returns:
+            Config value or default.
+        """
         keys = key.split('.')
         value = self.config
         

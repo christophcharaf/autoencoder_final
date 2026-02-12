@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+env/
+
+# Build outputs
+*.egg-info/
+dist/
+build/
+
+# Logs and local data
+logs/
+*.log
+prometheus_data/
+grafana_data/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Docs and tooling (not needed in container)
+docs/
+tests/
+.cursor/
+# Evaluation outputs
+evaluation/

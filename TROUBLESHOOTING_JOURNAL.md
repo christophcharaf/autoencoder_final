@@ -615,4 +615,63 @@ When building a synthetic data generator to stand in for real metrics:
 
 ---
 
-*End of Session (Feb 11-12)*
+## Session: February 12, 2026
+**Focus:** Developer Integration – Headless Evaluation, Model Path Config, Documentation
+
+### Issue #13: evaluate_model.py Blocks in CI/Headless Environments
+**Symptom:** `python scripts/evaluate_model.py` blocks waiting for plot window display; CI pipelines hang.
+
+**Root cause:** `plt.show()` blocks until the user closes the plot window. In headless environments (CI, Docker, SSH), no display is available.
+
+**Fix:**
+- `scripts/evaluate_model.py` — Added `--headless` flag; when set, uses `matplotlib.use('Agg')` before importing pyplot and skips `plt.show()`. Saves `evaluation/model_evaluation.png` in both modes.
+- `config/model.yaml` — Model path already centralized (see Issue #14).
+
+**Verification:** `python scripts/evaluate_model.py --headless` completes in ~5s and produces `evaluation/model_evaluation.png` without blocking.
+
+---
+
+### Issue #14: Hardcoded Model Paths Across Scripts
+**Symptom:** `train.py`, `evaluate_model.py`, and `inference.py` each referenced `models/lstm_autoencoder.h5` (or derived paths) separately, making path changes error-prone.
+
+**Root cause:** No shared configuration for model artifact paths.
+
+**Fix:**
+- `config/model.yaml` — Added `model.paths.base: models/lstm_autoencoder.h5`. All scripts derive `.weights.h5` and `_config.json` from this base.
+- `scripts/train.py` — Loads `model_base` from config for saving weights and config.
+- `scripts/evaluate_model.py` — Loads `model_base` from config.
+- `scripts/inference.py` — Loads `model_base` from config; existence check derives `.weights.h5` and `_config.json`.
+
+**Verification:** Train, evaluate, and inference all load/save models correctly using `model.paths.base`. Custom path test: changing `config/model.yaml` and re-running scripts works as expected.
+
+---
+
+### Issue #15: Keras Optimizer Loading Warning (Documentation)
+**Symptom:** When loading the model, Keras warns: "Skipping variable loading for optimizer 'adam', because it has 2 variables whereas the saved optimizer has 42 variables."
+
+**Root cause:** We save only weights (`save_weights`); optimizer state is not saved. Keras expects a full checkpoint when loading and reports the mismatch.
+
+**Impact:** None. Optimizer state is irrelevant for inference. Weights load correctly.
+
+**Fix:** Documentation only. Added to troubleshooting-history skill and `docs/troubleshooting.md`.
+
+**Verification:** No code change required. Confirmed that model weights load successfully for inference despite the warning.
+
+---
+
+*End of Session (Feb 12)*
+
+---
+
+## Design Rationale: stride=1
+
+**Why does training use stride=1 instead of stride=20?**
+
+This decision comes from **Troubleshooting Issue 4** (StandardScaler generalization failure). The original configuration used `stride: 20` (non-overlapping windows), producing roughly 1,000 training windows from ~20K data points. After deploying the fixed_minmax scaler fix, we also changed stride from 20 to 1, yielding ~20x more overlapping windows (~16K–20K).
+
+**Rationale:**
+- **More training samples** → LSTM learns richer representations of normal temporal patterns
+- **Result**: Training loss dropped to 0.0021, Prometheus MSE to 0.005, with 80.5% headroom below threshold
+- **Trade-off**: Longer training time (~20x more windows), but model quality improved substantially
+
+See `.cursor/skills/troubleshooting-history/SKILL.md` (Issue 4) for the full context. The stride parameter applies only to training; inference always uses the last `window_size` points and ignores stride.

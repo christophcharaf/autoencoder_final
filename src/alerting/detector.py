@@ -4,9 +4,12 @@ from datetime import datetime
 
 class AnomalyDetector:
     """
-    Detector de anomalías usando error de reconstrucción
+    Anomaly detector using reconstruction error threshold.
+
+    Preprocesses input data, creates a sliding window, runs the LSTM autoencoder,
+    and flags anomalies when reconstruction error exceeds the configured threshold.
     """
-    
+
     def __init__(self, threshold: float, model, preprocessor, windower):
         self.threshold = threshold
         self.model = model
@@ -16,22 +19,20 @@ class AnomalyDetector:
     
     def detect(self, data: pd.DataFrame) -> Dict:
         """
-        Detecta anomalías en datos en tiempo real
+        Detect anomalies in real-time metric data.
+
+        Args:
+            data: Raw DataFrame with TV-over-IP metrics.
+
+        Returns:
+            Dict with keys: is_anomaly, reconstruction_error, threshold,
+            confidence, original_values, reconstructed_values, feature_columns.
         """
         try:
-            # Preprocesar datos
             processed_data = self.preprocessor.transform(data)
-            
-            # Crear ventana
             window = self.windower.create_single_window(processed_data)
-            
-            # Calcular error de reconstrucción
             reconstruction_error = self.model.compute_reconstruction_error(window)[0]
-            
-            # Determinar si es anomalía
             is_anomaly = reconstruction_error > self.threshold
-            
-            # Obtener reconstrucción para comparación
             reconstructed = self.model.predict(window)[0]
             original = window[0]
             
@@ -46,10 +47,7 @@ class AnomalyDetector:
                 'feature_columns': self.preprocessor.feature_columns
             }
             
-            # Guardar en historial
             self.detection_history.append(detection_result)
-            
-            # Mantener solo últimos 1000 registros
             if len(self.detection_history) > 1000:
                 self.detection_history = self.detection_history[-1000:]
             

@@ -3,17 +3,24 @@ from urllib.parse import quote
 
 class GrafanaLinkGenerator:
     """
-    Generador de enlaces contextuales a dashboards de Grafana
+    Generator for contextual Grafana dashboard links centered on anomaly time.
     """
     
     def __init__(self, base_url: str, dashboard_uid: str = None):
         self.base_url = base_url.rstrip('/')
         self.dashboard_uid = dashboard_uid or "tv-metrics-dashboard"
     
-    def generate_anomaly_link(self, detection_time: str, 
-                            time_range_minutes: int = 30) -> str:
+    def generate_anomaly_link(self, detection_time: str,
+                             time_range_minutes: int = 30) -> str:
         """
-        Genera enlace a Grafana centrado en el tiempo de la anomalía
+        Generate Grafana dashboard link centered on anomaly detection time.
+
+        Args:
+            detection_time: ISO-format datetime string (e.g. from datetime.now().isoformat()).
+            time_range_minutes: Width of the time range around the anomaly (default: 30).
+
+        Returns:
+            str: Full Grafana dashboard URL with time range parameters.
         """
         detection_dt = datetime.fromisoformat(detection_time.replace('Z', '+00:00'))
         

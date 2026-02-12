@@ -5,7 +5,10 @@ from datetime import datetime
 
 class OpsgenieClient:
     """
-    Cliente para enviar alertas a Opsgenie
+    Client for sending anomaly alerts to Opsgenie.
+
+    Supports normal anomaly alerts, escalation alerts for long-running anomalies,
+    and resolved notifications when anomalies clear.
     """
     
     def __init__(self, api_key: str, base_url: str = "https://api.opsgenie.com",
@@ -21,7 +24,7 @@ class OpsgenieClient:
     
     def create_alert(self, detection_result: Dict, grafana_link: str = None) -> Dict:
         """
-        Crea alerta en Opsgenie basada en detección de anomalía
+        Create an Opsgenie alert from anomaly detection result.
         """
         if not detection_result.get('is_anomaly', False):
             return {'status': 'skipped', 'reason': 'Not an anomaly'}
@@ -37,17 +40,17 @@ class OpsgenieClient:
             initial_error = detection_result.get('initial_error', error_value)
             
             description = f"""
-⚠️ ESCALATION: Anomalía continúa activa en servicio TV-over-IP
+⚠️ ESCALATION: Anomaly still active on TV-over-IP service
 
-⏱️ Duración: {duration} minutos
-🔍 Detalles:
-- Error actual: {error_value:.4f}
-- Error inicial: {initial_error:.4f}
-- Umbral: {threshold:.4f}
-- Confianza: {confidence:.2f}
+⏱️ Duration: {duration} minutes
+🔍 Details:
+- Current error: {error_value:.4f}
+- Initial error: {initial_error:.4f}
+- Threshold: {threshold:.4f}
+- Confidence: {confidence:.2f}
 - Timestamp: {detection_result['timestamp']}
 
-📊 Métricas afectadas:
+📊 Affected metrics:
 {self._format_metrics_comparison(detection_result)}
             """.strip()
             
@@ -60,34 +63,36 @@ class OpsgenieClient:
         else:
             # Normal anomaly alert
             description = f"""
-Anomalía detectada en servicio TV-over-IP
+Anomaly detected on TV-over-IP service
 
-🔍 Detalles:
-- Error de reconstrucción: {error_value:.4f}
-- Umbral configurado: {threshold:.4f} 
-- Confianza: {confidence:.2f}
+🔍 Details:
+- Reconstruction error: {error_value:.4f}
+- Threshold: {threshold:.4f}
+- Confidence: {confidence:.2f}
 - Timestamp: {detection_result['timestamp']}
 
-📊 Métricas afectadas:
+📊 Affected metrics:
 {self._format_metrics_comparison(detection_result)}
             """.strip()
-            
+
             alert_payload = {
-                'message': 'Anomalía detectada en TV-over-IP',
+                'message': 'Anomaly detected on TV-over-IP',
                 'description': description,
                 'priority': self._determine_priority(confidence),
                 'tags': ['anomaly-detection', 'tv-over-ip', 'lstm-autoencoder'],
-            'details': {
-                'reconstruction_error': error_value,
-                'threshold': threshold,
-                'confidence': confidence,
-                'detection_time': detection_result['timestamp'],
-                'service': 'tv-over-ip'
+                'details': {
+                    'reconstruction_error': error_value,
+                    'threshold': threshold,
+                    'confidence': confidence,
+                    'detection_time': detection_result['timestamp'],
+                    'service': 'tv-over-ip'
+                }
             }
-        }
         
         if grafana_link:
-            alert_payload['description'] += f"\n\n📈 Ver en Grafana: {grafana_link}"
+            alert_payload['description'] += f"\n\n📈 View in Grafana: {grafana_link}"
+            if 'details' not in alert_payload:
+                alert_payload['details'] = {}
             alert_payload['details']['grafana_link'] = grafana_link
         
         try:
@@ -113,7 +118,7 @@ Anomalía detectada en servicio TV-over-IP
             }
     
     def _determine_priority(self, confidence: float) -> str:
-        """Determina prioridad basada en confianza (umbrales configurables)"""
+        """Determine alert priority from confidence (configurable thresholds)."""
         if confidence > self.priority_thresholds.get('P1', 2.0):
             return 'P1'
         elif confidence > self.priority_thresholds.get('P2', 1.0):
@@ -124,16 +129,16 @@ Anomalía detectada en servicio TV-over-IP
             return 'P4'
     
     def _format_metrics_comparison(self, detection_result: Dict) -> str:
-        """Formatea comparación de métricas"""
+        """Format original vs reconstructed metrics for alert description."""
         if 'feature_columns' not in detection_result:
-            return "Datos de métricas no disponibles"
-        
+            return "Metric data not available"
+
         original = detection_result.get('original_values', [])
         reconstructed = detection_result.get('reconstructed_values', [])
         features = detection_result['feature_columns']
-        
+
         if not original or not reconstructed or not features:
-            return "Datos de comparación no disponibles"
+            return "Comparison data not available"
         
         # Mostrar solo las últimas mediciones
         if len(original) > 0 and len(original[0]) > 0:
@@ -149,7 +154,7 @@ Anomalía detectada en servicio TV-over-IP
             
             return "\n".join(comparison[:5])
         
-        return "No se pudieron procesar las métricas"
+        return "Could not process metrics"
     
     def create_resolved_alert(self, resolved_data: Dict) -> Dict:
         """Create resolved notification in Opsgenie"""
@@ -157,16 +162,16 @@ Anomalía detectada en servicio TV-over-IP
         duration_str = f"{duration//60}m {duration%60}s"
         
         description = f"""
-Anomalía resuelta en servicio TV-over-IP
+Anomaly resolved on TV-over-IP service
 
-✅ Estado: Resuelto
-⏱️ Duración: {duration_str}
+✅ Status: Resolved
+⏱️ Duration: {duration_str}
 🆔 Anomaly ID: {resolved_data.get('anomaly_id', 'N/A')}
-📊 Error inicial: {resolved_data.get('initial_error', 0):.4f}
+📊 Initial error: {resolved_data.get('initial_error', 0):.4f}
         """.strip()
-        
+
         alert_payload = {
-            'message': '✅ Anomalía resuelta en TV-over-IP',
+            'message': '✅ Anomaly resolved on TV-over-IP',
             'description': description,
             'priority': 'P5',
             'tags': ['anomaly-detection', 'tv-over-ip', 'resolved'],

@@ -30,6 +30,8 @@ python scripts/train.py
 docker-compose build anomaly-detection
 ```
 
+**Ruta configurable:** La ruta base del modelo se define en `config/model.yaml` bajo `model.paths.base`. Por defecto: `models/lstm_autoencoder.h5`. Los scripts derivan automáticamente `.weights.h5` y `_config.json`.
+
 ### Error: "Prometheus connection failed"
 
 ```bash
@@ -318,6 +320,32 @@ curl -X POST http://localhost:8000/anomaly \
 1. **Ventana de datos:** El detector usa una ventana de 10 minutos. La anomalía puede tardar 1-2 ciclos (30-60 segundos) en aparecer.
 2. **Confianza insuficiente:** Si la anomalía es leve, el confidence puede estar por debajo del `min_confidence`. Verificar en los logs de DEBUG.
 3. **Métrica no monitoreada:** Verificar que el tipo de anomalía afecta una de las 5 métricas monitoreadas (`request_rate`, `latency_p95`, `memory_usage`, `error_rate`, `cpu_usage`).
+
+---
+
+## Modelo y Evaluación
+
+### Advertencia de Keras al cargar el modelo (esperada y segura)
+
+**Síntoma:** Al cargar el modelo, Keras muestra: "Skipping variable loading for optimizer 'adam', because it has 2 variables whereas the saved optimizer has 42 variables."
+
+**Causa:** Solo guardamos pesos (`save_weights`); el estado del optimizador no se guarda. Keras espera un checkpoint completo al cargar.
+
+**Impacto:** Ninguno. El optimizador no se usa en inferencia. Los pesos cargan correctamente.
+
+**Acción:** No requiere cambios. Es un comportamiento esperado y seguro.
+
+### evaluate_model.py se bloquea en CI o entorno sin display
+
+**Síntoma:** `python scripts/evaluate_model.py` queda colgado esperando que se cierre la ventana del gráfico.
+
+**Solución:** Usar la opción `--headless` para entornos sin display (CI, Docker, SSH):
+
+```bash
+python scripts/evaluate_model.py --headless
+```
+
+Esto genera `evaluation/model_evaluation.png` sin bloquear.
 
 ---
 

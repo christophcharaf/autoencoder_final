@@ -48,9 +48,6 @@ data:
     
     preprocessing:
       normalization: "fixed_minmax"  # standard, minmax, robust, fixed_minmax
-      outlier_detection: true
-      outlier_method: "iqr"      # iqr, zscore, isolation_forest
-      outlier_threshold: 3.0
       
       # Fixed scaling bounds for deterministic normalization (used with fixed_minmax).
       # Prevents scaler from memorizing training data distribution, ensuring
@@ -75,8 +72,9 @@ data:
         is_weekend:    [0, 1]
         is_night:      [0, 1]
       
-    # Configuración de ventana de datos
+    # Data collection window
     collection:
-      history_hours: 168         # horas de historial para entrenamiento (7 días, using synthetic data that matches real patterns)
-      inference_minutes: 10      # minutos de datos para inferencia (matches window_size: 10min = 20 timesteps × 30s)
-      sampling_interval: "30s"   # intervalo de muestreo
+      history_hours: 168         # training history (7 days)
+      inference_minutes: 10      # inference window (20 timesteps × 30s)
+      sampling_interval: "30s"
+      detection_cycle_seconds: 30  # inference loop interval

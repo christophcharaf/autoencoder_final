@@ -40,7 +40,7 @@ docker-compose.yml (profile: dev)
 - Prometheus data persists in named volume `prometheus_data` (survives `docker-compose down`)
 - `scrape_interval: 30s` aligned with `config/data.yaml` sampling_interval
 - Retention: 15 days (`--storage.tsdb.retention.time=15d`)
-- anomaly-detection depends on mock-service and prometheus via `depends_on`
+- anomaly-detection has no `depends_on` (runs standalone for prod; with `--profile dev` may briefly fall back to synthetic if Prometheus not ready)
 - All services on `monitoring` bridge network
 
 ## Conventions

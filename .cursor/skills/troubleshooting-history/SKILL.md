@@ -42,6 +42,13 @@ Known issues discovered and fixed during development. Check here first when debu
 **Symptom**: `inference.py` passed `queries` parameter that `get_tv_metrics` didn't accept (latent TypeError).
 **Fix**: Updated `get_tv_metrics` signature to accept `queries` and `step` parameters. Updated callers in both `train.py` and `inference.py`.
 
+## Issue 7: Keras optimizer loading warning
+
+**Symptom**: When loading the model, Keras warns: "Skipping variable loading for optimizer 'adam', because it has 2 variables whereas the saved optimizer has 42 variables."
+**Cause**: We save only weights (`save_weights`); the optimizer state is not saved. Keras expects a full checkpoint when loading.
+**Impact**: None. Optimizer state is irrelevant for inference. Weights load correctly.
+**Status**: Expected and safe. No action required.
+
 ## Diagnostic commands
 
 For the full troubleshooting journal with detailed analysis, see `TROUBLESHOOTING_JOURNAL.md` in the project root.

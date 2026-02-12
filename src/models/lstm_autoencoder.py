@@ -239,8 +239,8 @@ class LSTMAutoencoder:
         better stability and portability across TensorFlow versions.
         
         Files created:
-            - {filepath}.weights.h5: Model weights
-            - {filepath}_config.json: Architecture configuration
+            - Weights: filepath with '.h5' replaced by '.weights.h5' (e.g. models/lstm_autoencoder.weights.h5)
+            - Config: filepath with '.h5' replaced by '_config.json' (e.g. models/lstm_autoencoder_config.json)
         
         Args:
             filepath: Base path for saving (e.g., 'models/lstm_autoencoder.h5')
@@ -275,6 +275,10 @@ class LSTMAutoencoder:
         
         Args:
             filepath: Base path for loading (e.g., 'models/lstm_autoencoder.h5')
+
+        Expects:
+            - Weights file: filepath with '.h5' replaced by '.weights.h5'
+            - Config file: filepath with '.h5' replaced by '_config.json'
         """
         import json
         

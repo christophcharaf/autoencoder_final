@@ -288,6 +288,6 @@ class PrometheusClient:
             for df in all_metrics[1:]:
                 combined = combined.merge(df, on='timestamp', how='outer')
             
-            return combined.sort_values('timestamp').fillna(method='ffill').fillna(0)
+            return combined.sort_values('timestamp').ffill().fillna(0)
         
         return pd.DataFrame()

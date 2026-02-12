@@ -30,7 +30,7 @@ alerting:
   # Control de alertas
   rate_limiting:
     min_interval_seconds: 300                      # Min time between Opsgenie alerts (same anomaly)
-    max_alerts_per_hour: 10                        # Not yet implemented (future)
+    max_alerts_per_hour: 10                        # TODO: Not yet implemented
     enable_deduplication: true                     # Enable smart anomaly tracking
     min_confidence: 0.25                           # Minimum confidence to alert (25% above threshold)
     severity_tolerance: 0.2                        # ±20% for same anomaly detection

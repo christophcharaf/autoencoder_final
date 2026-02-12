@@ -4,18 +4,17 @@ Real-time Anomaly Detection Inference Service
 
 This script runs a continuous anomaly detection service that:
     1. Fetches current metrics from Prometheus (or generates synthetic data)
-    2. Preprocesses the data using the trained scaler
+    2. Preprocesses the data using the trained preprocessor (fixed_minmax scaler when so configured)
     3. Runs inference through the LSTM Autoencoder
     4. Compares reconstruction error against the trained threshold
     5. Sends alerts via Opsgenie when anomalies are detected
     6. Generates Grafana dashboard links for investigation
 
 Prerequisites:
-    - Trained model files in models/ directory:
-        - lstm_autoencoder.weights.h5
-        - lstm_autoencoder_config.json
-        - preprocessor.joblib
-        - anomaly_threshold.npy
+    - models/ directory containing:
+        - Model: lstm_autoencoder.weights.h5, lstm_autoencoder_config.json (path configurable via model.paths.base)
+        - models/preprocessor.joblib
+        - models/anomaly_threshold.npy
     
 Configuration:
     - config/data.yaml: Prometheus connection and data settings
@@ -36,7 +35,7 @@ import sys
 import time
 import signal
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Add src directory to Python path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -46,6 +45,7 @@ from utils.logging import setup_logger
 from data.prometheus_client import PrometheusClient
 from data.preprocessor import DataPreprocessor
 from data.windowing import WindowGenerator
+from data.synthetic_data import generate_synthetic_data
 from models.lstm_autoencoder import LSTMAutoencoder
 from alerting.detector import AnomalyDetector
 from alerting.opsgenie_client import OpsgenieClient
@@ -67,7 +67,7 @@ class AnomalyDetectionService:
     
     Attributes:
         prometheus_client: Client for fetching metrics from Prometheus
-        preprocessor: Data preprocessor with trained scaler
+        preprocessor: Data preprocessor with loaded scaler (fixed_minmax by default)
         windower: Sliding window generator for time series
         model: Trained LSTM Autoencoder model
         detector: Anomaly detector with threshold logic
@@ -117,7 +117,7 @@ class AnomalyDetectionService:
         self._initialize_components()
     
     def _initialize_components(self):
-        """Inicializa todos los componentes del sistema"""
+        """Initialize all service components."""
         self.logger.info("Initializing anomaly detection service...")
         
         try:
@@ -138,7 +138,7 @@ class AnomalyDetectionService:
             self.escalation_interval = self.config.get('alerting.rate_limiting.escalation_interval_minutes', 15)
             self.send_resolved = self.config.get('alerting.rate_limiting.send_resolved_notification', True)
             
-            # Cliente Prometheus
+            # Prometheus client
             prometheus_url = self.config.get('data.prometheus.url')
             prometheus_token = self.config.get('data.prometheus.token')
             prometheus_timeout = self.config.get('data.prometheus.timeout_seconds', 30)
@@ -153,7 +153,7 @@ class AnomalyDetectionService:
             else:
                 self.logger.warning("No Prometheus URL configured - using synthetic data")
             
-            # Cargar preprocessor
+            # Load preprocessor
             if os.path.exists('models/preprocessor.joblib'):
                 self.preprocessor = DataPreprocessor()
                 self.preprocessor.load_scaler('models/preprocessor.joblib')
@@ -161,22 +161,25 @@ class AnomalyDetectionService:
             else:
                 raise FileNotFoundError("Preprocessor not found. Please train model first.")
             
-            # Configurar windower
+            # Configure windower
             window_size = self.config.get('windowing.window_size', 20)
             self.windower = WindowGenerator(window_size=window_size)
-            
-            # Cargar modelo
-            if os.path.exists('models/lstm_autoencoder.weights.h5') and os.path.exists('models/lstm_autoencoder_config.json'):
+
+            # Load model (base path: .h5 → derives .weights.h5 and _config.json)
+            model_base = self.config.get('model.paths.base', 'models/lstm_autoencoder.h5')
+            weights_path = model_base.replace('.h5', '.weights.h5')
+            config_path = model_base.replace('.h5', '_config.json')
+            if os.path.exists(weights_path) and os.path.exists(config_path):
                 n_features = len(self.preprocessor.feature_columns) if self.preprocessor.feature_columns else 5
                 input_shape = (window_size, n_features)
-                
+
                 self.model = LSTMAutoencoder(input_shape=input_shape)
-                self.model.load('models/lstm_autoencoder.h5')
+                self.model.load(model_base)
                 self.logger.info("LSTM Autoencoder model loaded")
             else:
                 raise FileNotFoundError("Model not found. Please train model first.")
             
-            # Cargar threshold
+            # Load threshold
             if os.path.exists('models/anomaly_threshold.npy'):
                 threshold = np.load('models/anomaly_threshold.npy')
                 self.detector = AnomalyDetector(
@@ -189,7 +192,7 @@ class AnomalyDetectionService:
             else:
                 raise FileNotFoundError("Threshold not found. Please train model first.")
             
-            # Cliente Opsgenie (opcional)
+            # Opsgenie client (optional)
             opsgenie_key = self.config.get('alerting.opsgenie.api_key')
             if opsgenie_key and opsgenie_key != "your_api_key_here":
                 opsgenie_base_url = self.config.get('alerting.opsgenie.base_url', 'https://api.opsgenie.com')
@@ -205,7 +208,7 @@ class AnomalyDetectionService:
             else:
                 self.logger.warning("Opsgenie not configured - alerts will be logged only")
             
-            # Generador enlaces Grafana (opcional)  
+            # Grafana link generator (optional)
             grafana_url = self.config.get('alerting.grafana.base_url')
             grafana_dashboard_uid = self.config.get('alerting.grafana.dashboard_uid')
             if grafana_url:
@@ -219,7 +222,7 @@ class AnomalyDetectionService:
             raise
     
     def _get_current_data(self) -> pd.DataFrame:
-        """Obtiene datos actuales"""
+        """Fetch current metrics from Prometheus or synthetic fallback."""
         if self.prometheus_client:
             try:
                 # Convert inference_minutes to hours
@@ -233,48 +236,19 @@ class AnomalyDetectionService:
         return self._generate_current_synthetic_data()
     
     def _generate_current_synthetic_data(self) -> pd.DataFrame:
-        """Genera datos sintéticos para el momento actual"""
-        current_time = datetime.now()
-        timestamps = pd.date_range(
-            start=current_time - timedelta(minutes=self.inference_minutes),
-            end=current_time,
-            freq='30s'
-        )
-        
-        np.random.seed(int(current_time.timestamp()) % 1000)
-        n_points = len(timestamps)
-        
-        # Daily pattern matching mock service and training generator
-        # Peak at hour 14 (2 PM), trough at hour 2 (2 AM)
-        hours = np.array([ts.hour for ts in timestamps])
-        base_pattern = 0.5 + 0.4 * np.sin(2 * np.pi * (hours - 8) / 24)
-        
-        # Occasionally inject anomalies for testing
+        """Generate synthetic data for the current inference window (fallback when Prometheus unavailable)."""
         anomaly_multiplier = 1.0
         if np.random.random() < 0.05:
             anomaly_multiplier = np.random.uniform(2.0, 5.0)
             self.logger.info(f"Injecting synthetic anomaly with multiplier {anomaly_multiplier:.2f}")
-        
-        # Verified formulas matching real Prometheus data (same as training generator)
-        # Memory: noisy constant, no daily cycle
-        base_memory = np.random.uniform(500_000_000, 1_500_000_000)
-        
-        data = {
-            'timestamp': timestamps,
-            'request_rate': (125 * base_pattern) * anomaly_multiplier + np.random.normal(0, 3, n_points),
-            'latency_p95': (0.22 * base_pattern + 0.215) * anomaly_multiplier + np.random.normal(0, 0.015, n_points),
-            'memory_usage': (base_memory) * anomaly_multiplier + np.random.normal(0, base_memory * 0.03, n_points),
-            'error_rate': (2.5 * base_pattern) * anomaly_multiplier + np.random.normal(0, 0.05, n_points),
-            'cpu_usage': 0.125 * base_pattern + np.random.normal(0, 0.005, n_points)
-        }
-        
-        for col in ['request_rate', 'latency_p95', 'error_rate', 'memory_usage', 'cpu_usage']:
-            data[col] = np.maximum(data[col], 0)
-        
-        return pd.DataFrame(data)
+        return generate_synthetic_data(
+            minutes_back=self.inference_minutes,
+            seed=int(datetime.now().timestamp()) % 1000,
+            anomaly_multiplier=anomaly_multiplier,
+        )
     
     def _should_send_alert(self) -> bool:
-        """Verifica si se debe enviar alerta"""
+        """Check if enough time has passed since last alert (rate limiting)."""
         if self.last_alert_time is None:
             return True
         
@@ -400,16 +374,16 @@ class AnomalyDetectionService:
                 self.logger.info(f"Resolved notification sent to Opsgenie")
     
     def _send_alert(self, detection_result: dict):
-        """Envía alerta por los canales configurados"""
+        """Send alert through configured channels (Opsgenie, logs, Grafana links)."""
         try:
-            # Generar enlace Grafana
+            # Generate Grafana link
             grafana_link = None
             if self.grafana_links:
                 grafana_link = self.grafana_links.generate_anomaly_link(
                     detection_result['timestamp']
                 )
             
-            # Log local
+            # Log locally
             self.logger.warning(f"🚨 ANOMALY DETECTED:")
             self.logger.warning(f"   Reconstruction error: {detection_result['reconstruction_error']:.4f}")
             self.logger.warning(f"   Threshold: {detection_result['threshold']:.4f}")
@@ -430,7 +404,7 @@ class AnomalyDetectionService:
             self.logger.error(f"Error sending alert: {e}")
     
     def run_detection_cycle(self):
-        """Ejecuta un ciclo de detección"""
+        """Run one detection cycle: fetch data, detect anomalies, handle alerts."""
         try:
             current_data = self._get_current_data()
             
@@ -548,7 +522,7 @@ class AnomalyDetectionService:
             self.logger.warning(f"   {col}: {avg_str}")
     
     def start(self):
-        """Inicia el servicio de detección"""
+        """Start the detection service loop."""
         self.logger.info("🚀 Starting anomaly detection service...")
         self.running = True
         
@@ -559,7 +533,7 @@ class AnomalyDetectionService:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
-        cycle_interval = 30  # 30 segundos
+        cycle_interval = self.config.get('data.features.collection.detection_cycle_seconds', 30)
         
         while self.running:
             cycle_start = time.time()
@@ -575,11 +549,11 @@ class AnomalyDetectionService:
         self.logger.info("Anomaly detection service stopped")
     
     def stop(self):
-        """Detiene el servicio"""
+        """Stop the detection service."""
         self.running = False
 
 def main():
-    """Función principal"""
+    """Entry point for the anomaly detection service."""
     try:
         service = AnomalyDetectionService()
         

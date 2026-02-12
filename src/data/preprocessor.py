@@ -3,7 +3,7 @@ Data Preprocessor for LSTM Autoencoder
 
 This module handles data preprocessing for the anomaly detection model:
     - Temporal feature engineering (cyclical hour encoding, day of week, etc.)
-    - Data normalization (StandardScaler, MinMaxScaler, or fixed-bounds MinMax)
+    - Data normalization (StandardScaler, MinMaxScaler, or fixed_minmax scaler)
     - Scaler persistence for inference
 
 The preprocessor ensures consistent data transformation between training
@@ -213,14 +213,14 @@ class DataPreprocessor:
         # Extract hour for multiple features
         hour = df['timestamp'].dt.hour
         
-        # Codificación cíclica de hora
+        # Cyclical hour encoding
         if self.temporal_features.get('hour_sin', True):
             df['hour_sin'] = np.sin(2 * np.pi * hour / 24)
         
         if self.temporal_features.get('hour_cos', True):
             df['hour_cos'] = np.cos(2 * np.pi * hour / 24)
         
-        # Día de la semana
+        # Day of week encoding
         if self.temporal_features.get('day_of_week', True):
             dayofweek = df['timestamp'].dt.dayofweek
             # Encode as sin/cos for cyclical nature

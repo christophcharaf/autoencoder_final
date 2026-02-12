@@ -1,9 +1,13 @@
 model:
+  # Rutas de modelo (base: models/lstm_autoencoder.h5 → .weights.h5 y _config.json)
+  paths:
+    base: models/lstm_autoencoder.h5
+
   # Arquitectura del autoencoder
   architecture:
     encoder_layers: [64, 32, 16]
     decoder_layers: [16, 32, 64]
-    activation: "tanh"
+    # activation: reserved for future use (currently hardcoded in model)
     dropout: 0.1
     
   # Parámetros de entrenamiento
@@ -23,5 +27,4 @@ model:
   # Configuración de modelo
   settings:
     verbose_training: 1
-    save_best_only: true
-    monitor_metric: "val_loss"
+    # save_best_only, monitor_metric: reserved for ModelCheckpoint (not yet wired)
