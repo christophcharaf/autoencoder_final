@@ -663,6 +663,43 @@ When building a synthetic data generator to stand in for real metrics:
 
 ---
 
+## Session: February 16, 2026
+**Focus:** Container Runtime – Anomaly Detector Reboot Loop
+
+### Issue #16: Anomaly Detector Container Reboot Loop (LSTM Layer Name Mismatch)
+**Symptom:** The `tv-anomaly-detector` container entered a restart loop. Logs showed:
+```
+Layer 'lstm_cell' expected 3 variables, but received 0 variables during loading.
+Expected: ['encoder_lstm_0/lstm_cell/kernel:0', 'encoder_lstm_0/lstm_cell/recurrent_kernel:0', 'encoder_lstm_0/lstm_cell/bias:0']
+```
+
+**Root cause:** Keras matches weights to layers by **layer name**. The saved weights file (`lstm_autoencoder.weights.h5`) contained layers with default Keras naming: `lstm`, `lstm_1`, `lstm_2`, … `lstm_5`. The model code used custom names: `encoder_lstm_0`, `encoder_lstm_1`, `latent`, `decoder_lstm_0`, etc. Because the names did not match, Keras found no variables for each layer ("received 0 variables"), causing `load_weights()` to fail and the service to exit at startup.
+
+Inspection of the H5 file with `h5py` confirmed:
+- Saved file: `layers/lstm`, `layers/lstm_1`, … `layers/lstm_5`
+- Model expected: `encoder_lstm_0`, `encoder_lstm_1`, etc.
+
+**Fix:** Removed the custom `name=` parameters from all LSTM layers in `src/models/lstm_autoencoder.py`. The model now uses Keras default naming, which matches the structure in the existing weights file. No retraining required; existing `.weights.h5` files load correctly.
+
+**Files modified:**
+- `src/models/lstm_autoencoder.py`: Removed `name=f'encoder_lstm_{i}'`, `name='latent'`, and `name=f'decoder_lstm_{i}'` from LSTM layer constructors
+
+**Verification:** Rebuilt image with `docker-compose up -d --build anomaly-detection`. Container started successfully; logs showed:
+```
+Model loaded from models/lstm_autoencoder.weights.h5
+LSTM Autoencoder model loaded
+Anomaly detector initialized with threshold: 0.1345
+=== Service initialization completed ===
+```
+
+**Lesson learned:** When saving/loading weights with `save_weights`/`load_weights`, the layer names in the model at load time must match those in the saved file. Custom layer names improve readability but create compatibility risk if weights were saved with a different model build (e.g., older code or different Keras version). Using default Keras naming avoids this mismatch.
+
+---
+
+*End of Session (Feb 16)*
+
+---
+
 ## Design Rationale: stride=1
 
 **Why does training use stride=1 instead of stride=20?**

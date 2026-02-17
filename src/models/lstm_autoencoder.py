@@ -95,15 +95,14 @@ class LSTMAutoencoder:
         
         # === ENCODER ===
         # Stacked LSTM layers with decreasing units to compress input
+        # Use default Keras naming (lstm, lstm_1, ...) for save/load compatibility
         x = inputs
-        for i, units in enumerate(self.encoder_layers[:-1]):
-            x = layers.LSTM(units, return_sequences=True, 
-                          name=f'encoder_lstm_{i}')(x)
+        for units in self.encoder_layers[:-1]:
+            x = layers.LSTM(units, return_sequences=True)(x)
             x = layers.Dropout(self.dropout)(x)
         
         # Final encoder layer outputs the latent representation (no sequences)
-        latent = layers.LSTM(self.encoder_layers[-1], return_sequences=False, 
-                           name='latent')(x)
+        latent = layers.LSTM(self.encoder_layers[-1], return_sequences=False)(x)
         
         # === DECODER ===
         # Repeat latent vector to match original sequence length
@@ -111,9 +110,8 @@ class LSTMAutoencoder:
         
         # Stacked LSTM layers with increasing units to reconstruct input
         # All decoder LSTM layers must have return_sequences=True
-        for i, units in enumerate(self.decoder_layers):
-            x = layers.LSTM(units, return_sequences=True,
-                          name=f'decoder_lstm_{i}')(x)
+        for units in self.decoder_layers:
+            x = layers.LSTM(units, return_sequences=True)(x)
             x = layers.Dropout(self.dropout)(x)
         
         # Output layer: Apply Dense to each timestep to match input features

@@ -49,6 +49,12 @@ Known issues discovered and fixed during development. Check here first when debu
 **Impact**: None. Optimizer state is irrelevant for inference. Weights load correctly.
 **Status**: Expected and safe. No action required.
 
+## Issue 8: Container reboot loop (LSTM layer name mismatch)
+
+**Symptom**: `tv-anomaly-detector` container in restart loop. Logs: "Layer 'lstm_cell' expected 3 variables, but received 0 variables during loading."
+**Root cause**: Saved weights file used default Keras layer names (`lstm`, `lstm_1`, ...), but model code used custom names (`encoder_lstm_0`, `decoder_lstm_0`, ...). Keras matches weights by layer name; no match = 0 variables.
+**Fix**: Removed custom `name=` parameters from LSTM layers in `lstm_autoencoder.py`. Model now uses default Keras naming, matching the structure in existing `.weights.h5` files.
+
 ## Diagnostic commands
 
 For the full troubleshooting journal with detailed analysis, see `TROUBLESHOOTING_JOURNAL.md` in the project root.
