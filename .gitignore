@@ -31,7 +31,6 @@ config/local*.yaml
 .cursor/
 *.swp
 *.swo
-
 # OS
 .DS_Store
 Thumbs.db
