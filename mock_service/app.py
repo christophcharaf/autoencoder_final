@@ -4,11 +4,15 @@ Mock TV-over-IP Service
 Exposes Prometheus metrics with realistic traffic patterns and API-triggered anomaly injection.
 """
 
-import math
 import time
 import random
 import threading
 from datetime import datetime
+
+from traffic_simulation_core import (
+    new_base_memory,
+    simulate_one_second,
+)
 from flask import Flask, request, jsonify
 from prometheus_client import (
     Counter, Histogram, Gauge, 
@@ -118,102 +122,49 @@ anomaly_state = AnomalyState()
 # Traffic Simulation
 # ============================================================================
 
-def get_daily_load_factor() -> float:
-    """
-    Returns a load factor based on time of day.
-    Higher during business hours, lower at night.
-    Simulates realistic TV-over-IP usage patterns.
-    """
-    hour = datetime.now().hour
-    # Peak hours: 18:00-23:00 (evening TV watching)
-    # Low hours: 02:00-06:00 (night)
-    # Medium: rest of the day
-    
-    # Use sine wave with peak at 20:00 (8 PM)
-    # Shift by -20 hours to center peak, then normalize
-    base_factor = 0.5 + 0.4 * math.sin(2 * math.pi * (hour - 8) / 24)
-    
-    # Add some randomness
-    noise = random.uniform(-0.05, 0.05)
-    
-    return max(0.1, min(1.0, base_factor + noise))
-
-
 def simulate_traffic():
     """
     Background thread that continuously generates realistic metrics.
-    Runs every second, simulating traffic patterns.
+    Runs every second; logic is shared with offline synthetic data
+    (traffic_simulation_core.simulate_one_second).
     """
-    # Initialize service as up
     SERVICE_UP.set(1)
-    
-    # Base memory: 500MB - 1.5GB
-    base_memory = random.uniform(500_000_000, 1_500_000_000)
+
+    rng = random.Random()
+    base_memory = new_base_memory(rng)
     MEMORY_USAGE.set(base_memory)
-    
+
+    def _is_anomaly(name: str, _dt: datetime) -> bool:
+        return anomaly_state.is_active(name)
+
     while True:
         try:
-            load_factor = get_daily_load_factor()
-            
-            # ---- Simulate HTTP Requests ----
-            # Base: 50-200 requests per second, scaled by load
-            num_requests = int(random.uniform(50, 200) * load_factor)
-            
-            # Check for traffic_drop anomaly
-            if anomaly_state.is_active('traffic_drop'):
-                num_requests = int(num_requests * 0.1)  # 90% drop
-            
-            for _ in range(num_requests):
-                endpoint = random.choice(['/stream', '/api/channels', '/api/epg', '/health'])
-                method = 'GET'
-                
-                # Determine latency
-                if anomaly_state.is_active('latency_spike'):
-                    # Anomaly: 2-10 second latency
-                    latency = random.uniform(2.0, 10.0)
-                else:
-                    # Normal: 10-200ms latency, scaled by load
-                    latency = random.uniform(0.01, 0.2) * (1 + load_factor * 0.5)
-                
-                REQUEST_DURATION.labels(endpoint=endpoint).observe(latency)
-                
-                # Determine if request is successful or error
-                error_rate = 0.02  # Base 2% error rate
-                if anomaly_state.is_active('error_burst'):
-                    error_rate = 0.3  # 30% error rate during burst
-                
-                if random.random() < error_rate:
+            sample = simulate_one_second(datetime.now(), rng, base_memory, _is_anomaly)
+            method = "GET"
+
+            for e in sample.events:
+                REQUEST_DURATION.labels(endpoint=e.endpoint).observe(e.latency)
+                if e.is_error:
                     ERROR_COUNT.labels(
-                        method=method, 
-                        endpoint=endpoint,
-                        error_type=random.choice(['500', '502', '503', '504'])
+                        method=method,
+                        endpoint=e.endpoint,
+                        error_type=e.error_type,
                     ).inc()
-                    REQUEST_COUNT.labels(method=method, endpoint=endpoint, status='5xx').inc()
+                    REQUEST_COUNT.labels(
+                        method=method, endpoint=e.endpoint, status="5xx"
+                    ).inc()
                 else:
-                    REQUEST_COUNT.labels(method=method, endpoint=endpoint, status='2xx').inc()
-            
-            # ---- Simulate Memory Usage ----
-            if anomaly_state.is_active('memory_spike'):
-                # Anomaly: spike to 3-4GB
-                memory = random.uniform(3_000_000_000, 4_000_000_000)
-            else:
-                # Normal: fluctuate around base ±10%
-                memory = base_memory * random.uniform(0.9, 1.1)
-            MEMORY_USAGE.set(memory)
-            
-            # ---- Simulate CPU Usage ----
-            # Increment CPU seconds based on load
-            cpu_increment = random.uniform(0.05, 0.2) * load_factor
-            if anomaly_state.is_active('latency_spike') or anomaly_state.is_active('memory_spike'):
-                cpu_increment *= 2  # Higher CPU during anomalies
-            CPU_SECONDS.inc(cpu_increment)
-            
-            # ---- Service Availability ----
+                    REQUEST_COUNT.labels(
+                        method=method, endpoint=e.endpoint, status="2xx"
+                    ).inc()
+
+            MEMORY_USAGE.set(sample.memory_bytes)
+            CPU_SECONDS.inc(sample.cpu_seconds)
             SERVICE_UP.set(1)
-            
-        except Exception as e:
-            print(f"Error in traffic simulation: {e}")
-        
+
+        except Exception as ex:
+            print(f"Error in traffic simulation: {ex}")
+
         time.sleep(1)
 
 

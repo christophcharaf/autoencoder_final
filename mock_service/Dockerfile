@@ -7,7 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY app.py .
+COPY app.py traffic_simulation_core.py .
 
 # Expose metrics port
 EXPOSE 8000

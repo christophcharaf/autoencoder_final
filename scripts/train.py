@@ -74,15 +74,31 @@ def main():
     
     # Check if Prometheus URL is actually configured (not empty or placeholder)
     if prometheus_url and prometheus_url.startswith('http') and not '${' in prometheus_url:
-        client = PrometheusClient(prometheus_url, token=prometheus_token, timeout=prometheus_timeout)
-        df = client.get_tv_metrics(hours_back=history_hours, queries=metric_queries, step=sampling_interval)
-        
+        try:
+            client = PrometheusClient(prometheus_url, token=prometheus_token, timeout=prometheus_timeout)
+            df = client.get_tv_metrics(hours_back=history_hours, queries=metric_queries, step=sampling_interval)
+        except Exception as e:
+            logger.warning("Prometheus unavailable (%s). Using synthetic data.", e)
+            df = pd.DataFrame()
+
         # Fallback to synthetic if Prometheus returns no data (e.g., not enough history yet)
         if df.empty:
-            logger.warning(f"Prometheus returned no data for {history_hours} hours. Falling back to synthetic data.")
+            logger.warning(
+                f"Prometheus returned no data for {history_hours} hours. Falling back to synthetic data."
+            )
+            if history_hours >= 720:
+                logger.info(
+                    "Synthetic generation for long history can take many minutes "
+                    "(e.g. ~90 days: often 10-20+ min) before training starts."
+                )
             df = generate_synthetic_data(history_hours=history_hours, seed=42)
     else:
         logger.warning("No Prometheus URL configured, generating synthetic data")
+        if history_hours >= 720:
+            logger.info(
+                "Synthetic generation for long history can take many minutes "
+                "(e.g. ~90 days: often 10-20+ min) before training starts."
+            )
         df = generate_synthetic_data(history_hours=history_hours, seed=42)
     
     if df.empty:
@@ -95,6 +111,11 @@ def main():
     if len(df) < min_rows:
         logger.warning(f"Prometheus returned only {len(df)} rows, need >= {min_rows} "
                        f"(window_size={window_size} x 5). Falling back to synthetic data.")
+        if history_hours >= 720:
+            logger.info(
+                "Synthetic generation for long history can take many minutes "
+                "(e.g. ~90 days: often 10-20+ min) before training starts."
+            )
         df = generate_synthetic_data(history_hours=history_hours, seed=42)
     
     logger.info(f"Data shape: {df.shape}")

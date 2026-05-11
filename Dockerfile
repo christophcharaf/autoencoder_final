@@ -1,4 +1,4 @@
-FROM python:3.8-slim
+FROM python:3.10-slim
 
 # Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y \
@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código fuente
 COPY src/ ./src/
+COPY mock_service/traffic_simulation_core.py ./mock_service/
 COPY config/ ./config/
 COPY scripts/ ./scripts/
 

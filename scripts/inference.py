@@ -104,10 +104,12 @@ class AnomalyDetectionService:
         self.anomaly_peak_error = None           # Peak reconstruction error
         self.last_heartbeat_log_time = None      # Last heartbeat log time
         self.last_escalation_time = None         # Last escalation alert time
+        self.pending_anomaly_cycles = 0          # Consecutive anomalous cycles before opening alert
         
         # Deduplication config (loaded from YAML)
         self.dedup_enabled = None
         self.min_confidence = None               # Minimum confidence to alert
+        self.consecutive_anomaly_cycles = None   # Consecutive anomalous cycles required
         self.severity_tolerance = None           # ±20% by default
         self.heartbeat_interval = None           # 180 seconds
         self.escalation_threshold = None         # 30 minutes
@@ -132,6 +134,7 @@ class AnomalyDetectionService:
             # Alert deduplication config
             self.dedup_enabled = self.config.get('alerting.rate_limiting.enable_deduplication', True)
             self.min_confidence = self.config.get('alerting.rate_limiting.min_confidence', 0.10)
+            self.consecutive_anomaly_cycles = self.config.get('alerting.rate_limiting.consecutive_anomaly_cycles', 1)
             self.severity_tolerance = self.config.get('alerting.rate_limiting.severity_tolerance', 0.2)
             self.heartbeat_interval = self.config.get('alerting.rate_limiting.heartbeat_interval_seconds', 180)
             self.escalation_threshold = self.config.get('alerting.rate_limiting.escalation_threshold_minutes', 30)
@@ -246,6 +249,65 @@ class AnomalyDetectionService:
             seed=int(datetime.now().timestamp()) % 1000,
             anomaly_multiplier=anomaly_multiplier,
         )
+
+    def _parse_duration_seconds(self, value: str, default: int = 30) -> int:
+        """Parse simple Prometheus-style durations like 30s, 5m, or 1h."""
+        if not isinstance(value, str) or len(value) < 2:
+            return default
+        unit = value[-1]
+        try:
+            amount = int(value[:-1])
+        except ValueError:
+            return default
+        multipliers = {'s': 1, 'm': 60, 'h': 3600}
+        return amount * multipliers.get(unit, default)
+
+    def _is_detection_window_ready(self, data: pd.DataFrame) -> bool:
+        """
+        Avoid scoring sparse/gappy Prometheus windows.
+
+        WindowGenerator zero-pads when fewer than window_size points are available.
+        That is useful as a low-level utility but unsafe for production inference:
+        after laptop sleep, Prometheus restart, or scrape gaps, padding can look
+        like a real anomaly. We skip until a complete recent window is available.
+        """
+        required_points = self.windower.window_size
+        if len(data) < required_points:
+            self.logger.warning(
+                "Insufficient Prometheus samples for detection: got %d, need %d. "
+                "Skipping cycle to avoid zero-padded false positives.",
+                len(data),
+                required_points,
+            )
+            return False
+
+        if 'timestamp' not in data.columns:
+            return True
+
+        timestamps = pd.to_datetime(data['timestamp']).sort_values()
+        step_seconds = self._parse_duration_seconds(self.sampling_interval, default=30)
+        max_allowed_gap = step_seconds * 2
+        gaps = timestamps.diff().dropna().dt.total_seconds()
+        if not gaps.empty and gaps.max() > max_allowed_gap:
+            self.logger.warning(
+                "Sparse Prometheus window detected: max gap %.1fs exceeds %.1fs. "
+                "Skipping cycle until scrapes are continuous.",
+                gaps.max(),
+                max_allowed_gap,
+            )
+            return False
+
+        latest_age = (pd.Timestamp.utcnow().tz_localize(None) - timestamps.iloc[-1]).total_seconds()
+        max_allowed_age = step_seconds * 2
+        if latest_age > max_allowed_age:
+            self.logger.warning(
+                "Stale Prometheus window detected: latest sample is %.1fs old. "
+                "Skipping cycle until fresh scrapes arrive.",
+                latest_age,
+            )
+            return False
+
+        return True
     
     def _should_send_alert(self) -> bool:
         """Check if enough time has passed since last alert (rate limiting)."""
@@ -411,6 +473,10 @@ class AnomalyDetectionService:
             if current_data.empty:
                 self.logger.warning("No data available for detection")
                 return
+
+            if not self._is_detection_window_ready(current_data):
+                self.pending_anomaly_cycles = 0
+                return
             
             self.logger.debug(f"Retrieved {len(current_data)} data points")
             
@@ -434,10 +500,24 @@ class AnomalyDetectionService:
                         self.logger.debug(f"Filtered (low confidence) - error: {reconstruction_error:.4f}, confidence: {confidence:.4f} < {self.min_confidence:.2f}")
                         # Treat as normal for deduplication purposes
                         is_anomaly = False
+                        self.pending_anomaly_cycles = 0
                 
                 if is_anomaly:
                     # Check if this is a new or ongoing anomaly
                     if self.current_anomaly_id is None:
+                        self.pending_anomaly_cycles += 1
+                        if self.pending_anomaly_cycles < self.consecutive_anomaly_cycles:
+                            self.logger.warning(
+                                "Potential anomaly observed (%d/%d cycles) - error: %.4f, threshold: %.4f, confidence: %.2f. "
+                                "Waiting for confirmation before alerting.",
+                                self.pending_anomaly_cycles,
+                                self.consecutive_anomaly_cycles,
+                                reconstruction_error,
+                                detection_result['threshold'],
+                                confidence,
+                            )
+                            return
+
                         # NEW ANOMALY - first detection
                         self.current_anomaly_id = str(uuid.uuid4())
                         self.anomaly_start_time = datetime.now()
@@ -463,6 +543,7 @@ class AnomalyDetectionService:
                         # else: silent (deduplication working)
                         
                 else:
+                    self.pending_anomaly_cycles = 0
                     # No anomaly detected
                     if self.current_anomaly_id is not None:
                         # Anomaly just resolved
@@ -475,6 +556,7 @@ class AnomalyDetectionService:
                         self.anomaly_peak_error = None
                         self.last_heartbeat_log_time = None
                         self.last_escalation_time = None
+                        self.pending_anomaly_cycles = 0
                     else:
                         # Normal operation
                         self.logger.debug(f"Normal - error: {reconstruction_error:.4f} (threshold: {detection_result['threshold']:.4f})")

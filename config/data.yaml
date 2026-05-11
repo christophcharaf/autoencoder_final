@@ -23,9 +23,9 @@ data:
         description: "95th percentile latency"
         
       - name: "memory_usage"
-        query: "process_resident_memory_bytes"
+        query: "process_resident_memory_bytes{job=\"mock-tv-service\"}"
         aggregation: "mean"
-        description: "Memory usage in bytes"
+        description: "Mock service memory usage in bytes"
         
       - name: "error_rate"
         query: "rate(http_request_errors_total[5m])"
@@ -33,9 +33,9 @@ data:
         description: "Error rate per second"
         
       - name: "cpu_usage"
-        query: "rate(process_cpu_seconds_total[5m])"
+        query: "rate(process_cpu_seconds_total{job=\"mock-tv-service\"}[5m])"
         aggregation: "sum"
-        description: "CPU usage rate"
+        description: "Mock service CPU usage rate"
   
   # Configuración de feature engineering
   features:
@@ -74,7 +74,7 @@ data:
       
     # Data collection window
     collection:
-      history_hours: 168         # training history (7 days)
+      history_hours: 2160        # training history (90 days; synthetic + Prometheus)
       inference_minutes: 10      # inference window (20 timesteps × 30s)
       sampling_interval: "30s"
       detection_cycle_seconds: 30  # inference loop interval

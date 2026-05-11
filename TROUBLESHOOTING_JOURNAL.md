@@ -126,11 +126,17 @@
 
 ## Final Configuration
 
+> **Historical note:** The values in this February 2026 section reflect the
+> first false-positive debugging session. The current pipeline now uses the
+> shared mock/synthetic simulator, 90-day synthetic fallback, and a lower tuned
+> threshold. See the May 2026 session at the end of this journal for the current
+> architecture and operational settings.
+
 ### Key Settings:
 - **Inference Window:** 10 minutes (see Issue #10 for window size fix)
-- **Threshold Method:** 99.5th percentile of validation reconstruction errors
-- **Threshold Value:** 0.9254
-- **Training Data:** 168 hours of synthetic data matching real patterns
+- **Threshold Method:** Historical 99.5th percentile of validation reconstruction errors
+- **Threshold Value:** Historical 0.9254
+- **Training Data:** Historical 168 hours of synthetic data matching real patterns
 
 ### Prometheus Query Aggregations:
 ```
@@ -155,6 +161,10 @@ cpu_usage: SUM across processes
 
 ## Status: RESOLVED ✅
 
+> **Historical note:** Resolved for the original February 2026 pipeline. The
+> model/data pipeline has since been refactored; current threshold and training
+> horizon are documented in the May 2026 session below.
+
 System is now:
 - ✅ Detecting real anomalies with high confidence
 - ✅ No false positives on normal traffic
@@ -166,9 +176,9 @@ System is now:
 
 ## Remaining Optional Enhancements
 
-1. **Alert Deduplication:** Track ongoing anomalies to prevent alert spam if anomaly persists beyond 10-minute window
+1. **max_alerts_per_hour:** `config/alerting.yaml` still has a TODO placeholder for hourly alert caps
 2. **Adaptive Thresholds:** Dynamically adjust threshold based on recent traffic patterns
-3. **Real Data Training:** Once sufficient Prometheus history available (7+ days), retrain with real data instead of synthetic
+3. **Real Data Training:** Once sufficient Prometheus history is exported or retained, retrain with real data instead of synthetic fallback
 
 ---
 
@@ -266,6 +276,12 @@ GRAFANA_URL=https://grafana.yourcompany.com
 Created detailed implementation plan and executed full deployment:
 
 ### Configuration Changes (`config/alerting.yaml`):
+
+> **Historical note:** The values in this excerpt were current during the first
+> deduplication implementation. The current defaults are in `config/alerting.yaml`
+> (`min_confidence: 0.25`, `consecutive_anomaly_cycles: 2`, and
+> `heartbeat_interval_seconds: 30` at the time of the May 2026 update).
+
 ```yaml
 rate_limiting:
   min_interval_seconds: 300                      # Min time between Opsgenie alerts
@@ -411,6 +427,8 @@ Full lifecycle test (90s latency_spike injection):
 | Anomaly wind-down | 6+ "severity changed" alerts | Silent heartbeats |
 | Total alerts per incident | 12+ | 1 (+ resolved) |
 
+**Follow-up (2026-02-12):** `min_confidence` was raised again to **0.25** in `config/alerting.yaml` for extra margin against intermittent marginal detections. The narrative above captures the **0.10 → 0.15** step from this incident; treat **0.25** as the current production default unless your YAML differs. Effective Opsgenie filter remains `threshold × (1 + min_confidence)` (see `docs/troubleshooting.md`).
+
 ---
 
 ## Issue #10: Windowing Configuration Mismatch - Zero-Padding During Inference
@@ -441,6 +459,11 @@ collection:
 ```
 
 Now: `10 × 2 = 20 = 20` ✅ (no padding needed)
+
+> **Current hardening:** `scripts/inference.py` now also checks readiness before
+> inference and skips sparse/stale/incomplete Prometheus windows. This means
+> production inference no longer relies on zero-padding behavior even if
+> Prometheus has a scrape gap.
 
 **Additional Improvements:**
 
@@ -547,6 +570,13 @@ Formula: `inference_minutes × (60 / sampling_interval_seconds) ≥ window_size`
 ### Issue #9: Synthetic Data Distribution Mismatch (Root Cause of False Positives)
 **Problem:** The model trained on synthetic data immediately flagged real Prometheus data as anomalous (reconstruction error 0.80-0.90 vs threshold 0.45). Deep analysis revealed the synthetic generator was fundamentally wrong in multiple ways.
 
+> **Historical note:** This section explains the original analytic synthetic
+> formulas. The current implementation no longer maintains separate formulas in
+> training/inference. `src/data/synthetic_data.py` now imports
+> `mock_service/traffic_simulation_core.py`, replays the same second-level mock
+> simulation, and applies PromQL-style `rate(...[5m])` and
+> `histogram_quantile()` behavior.
+
 **Analysis Method:** Traced each metric from mock service Python code through Prometheus `rate()`/`histogram_quantile()` to compute exact expected ranges. Then verified against live Prometheus (predictions matched within 1-7%).
 
 **Verification at load_factor=0.114 (01:37 UTC):**
@@ -612,6 +642,10 @@ When building a synthetic data generator to stand in for real metrics:
 2. **Verify against reality**: Run the real stack and compare computed predictions to actual values before trusting any formula.
 3. **Keep generators in sync**: Training and inference synthetic generators must use identical formulas.
 4. **Memory and latency are not what they seem**: Memory is a gauge (not rate), so it has no daily cycle. Histogram quantile is an approximation that diverges from true percentiles depending on bucket boundaries.
+
+**Current resolution:** The mock service and synthetic generator now share
+`mock_service/traffic_simulation_core.py`, so drift between live mock behavior
+and offline training fallback is structurally avoided.
 
 ---
 
@@ -692,6 +726,10 @@ Anomaly detector initialized with threshold: 0.1345
 === Service initialization completed ===
 ```
 
+> **Historical note:** `0.1345` was the threshold artifact at the time of this
+> container runtime fix. The current threshold is stored in
+> `models/anomaly_threshold.npy` and was later tuned to approximately `0.0045638`.
+
 **Lesson learned:** When saving/loading weights with `save_weights`/`load_weights`, the layer names in the model at load time must match those in the saved file. Custom layer names improve readability but create compatibility risk if weights were saved with a different model build (e.g., older code or different Keras version). Using default Keras naming avoids this mismatch.
 
 ---
@@ -712,3 +750,128 @@ This decision comes from **Troubleshooting Issue 4** (StandardScaler generalizat
 - **Trade-off**: Longer training time (~20x more windows), but model quality improved substantially
 
 See `.cursor/skills/troubleshooting-history/SKILL.md` (Issue 4) for the full context. The stride parameter applies only to training; inference always uses the last `window_size` points and ignores stride.
+
+---
+
+## Session: May 1, 2026
+**Focus:** Mock/Synthetic Parity, Threshold Tuning, Prometheus Gap Hardening
+
+### Issue #17: Synthetic Generator Drift from Live Mock Behavior
+
+**Symptom:** Earlier synthetic training data matched the *intent* of the mock service but not the exact post-PromQL behavior. Long-horizon training could learn distributions that differed from live `rate(...[5m])` and `histogram_quantile()` results.
+
+**Root cause:** The mock service generated real Prometheus counters, histograms, and gauges every second, while synthetic generation used separate analytic formulas. Even if ranges were similar, separate implementations could drift.
+
+**Fix:**
+- `mock_service/traffic_simulation_core.py` -- introduced shared second-level TV-over-IP simulation logic: diurnal load, per-request endpoint/latency/error draws, memory, CPU, and anomaly effects.
+- `mock_service/app.py` -- now calls `simulate_one_second()` from the shared core while preserving Prometheus labels and metric names.
+- `mock_service/Dockerfile` -- copies `traffic_simulation_core.py` into the mock service image.
+- `src/data/synthetic_data.py` -- now calls `simulate_one_second_compact()` and applies PromQL-style aggregation:
+  - `rate(...[5m])` via a 300-second sliding window
+  - Prometheus-style `histogram_quantile(0.95, ...)`
+  - `max` over endpoint latency series to match `config/data.yaml`
+  - daily memory baseline resampling for long histories to avoid learning one fixed mock restart baseline
+
+**Verification:**
+- 48-hour synthetic sample showed memory baseline variation instead of one fixed value.
+- Current live Prometheus scoring after retrain classified normal mock traffic as non-anomalous.
+
+---
+
+### Issue #18: Process Metrics Included Prometheus Itself
+
+**Symptom:** Normal mock traffic was classified as anomalous because `memory_usage` reconstruction error dominated the score.
+
+**Root cause:** `process_resident_memory_bytes` and `rate(process_cpu_seconds_total[5m])` were queried without a job selector. Prometheus returned both its own process metrics and the mock service metrics. The detector averaged these, producing a memory value far below the trained mock-service distribution.
+
+**Fix:**
+- `config/data.yaml` -- scoped process metrics to the mock service in the dev stack:
+  - `process_resident_memory_bytes{job="mock-tv-service"}`
+  - `rate(process_cpu_seconds_total{job="mock-tv-service"}[5m])`
+
+**Verification:**
+- Prometheus query returned only `job="mock-tv-service"` for memory and CPU.
+- Current live window with scoped process metrics scored below threshold.
+
+---
+
+### Issue #19: Threshold Tuning and Iteration Reporting
+
+**Symptom:** The trained model worked, but threshold selection needed a repeatable way to compare false positives and recall instead of relying on one plot.
+
+**Root cause:** `scripts/evaluate_model.py` produced `evaluation/model_evaluation.png`, but did not print plot-aligned summaries or save iteration rows for threshold comparison.
+
+**Fix:**
+- `scripts/evaluate_model.py` -- now prints four plot-aligned sections:
+  - reconstruction error distribution
+  - detection timeline
+  - confusion matrix
+  - accuracy/precision/recall/F1
+- `scripts/evaluate_model.py --sweep-thresholds 95,97.5,99,99.5,99.9` -- evaluates multiple normal-error percentiles without retraining.
+- `evaluation/evaluation_iterations.csv` -- receives one row per evaluation/threshold.
+- `scripts/tune_model.py` -- added safe model-candidate training loop that writes artifacts to `evaluation/tuning_runs/` instead of overwriting `models/`.
+
+**Result:**
+- Current selected threshold: approximately `0.0045638`, saved in `models/anomaly_threshold.npy`.
+- Best threshold-only sweep result used normal-error p99.5:
+  - precision: ~0.953
+  - recall: ~0.978
+  - F1: ~0.965
+
+**Verification:**
+- `python scripts/evaluate_model.py --headless --sweep-thresholds 95,97.5,99,99.5,99.9`
+- `python scripts/tune_model.py --quick --max-candidates 5 --verbose 0`
+- Quick architecture candidates did not beat the current 90-day model plus tuned threshold, so only the threshold was promoted.
+
+---
+
+### Issue #20: Sparse Prometheus Windows Caused False Positives
+
+**Symptom:** After the host/Docker environment paused, the detector opened an anomaly on normal mock traffic. Raw data showed only a handful of samples in the 10-minute inference range.
+
+**Root cause:** Prometheus had a scrape/data gap of about 22-23 minutes while containers did not restart. After scraping resumed, the detector queried a 10-minute range and received fewer than the required 20 samples. `WindowGenerator.create_single_window()` zero-pads short windows; the LSTM saw artificial zeros followed by normal traffic and classified the sequence as anomalous.
+
+**Fix:**
+- `scripts/inference.py` -- added `_is_detection_window_ready()` before inference:
+  - requires at least `window_size` real samples
+  - rejects timestamp gaps greater than `2 × sampling_interval`
+  - rejects stale latest samples older than `2 × sampling_interval`
+  - resets pending anomaly confirmation state on skipped cycles
+
+**Verification:**
+- Detector logs now show:
+  - `Insufficient Prometheus samples for detection... Skipping cycle...`
+- Once 20 continuous samples were available:
+  - `ready True`
+  - reconstruction error below threshold
+  - no alert on normal mock traffic
+
+---
+
+### Issue #21: Single-Cycle Post-Gap Transient Alert
+
+**Symptom:** After the sparse-window guard began skipping incomplete windows, the first complete window after a gap could briefly exceed threshold for one cycle, then resolve 30 seconds later.
+
+**Root cause:** The first complete window after a scrape gap can still contain warm-up/ramp artifacts from PromQL `rate(...[5m])` and newly resumed scrapes. This is not a sustained service anomaly.
+
+**Fix:**
+- `config/alerting.yaml` -- added `consecutive_anomaly_cycles: 2`.
+- `scripts/inference.py` -- added `pending_anomaly_cycles` before opening a new alert. A new anomaly must pass confidence filtering for two consecutive detection cycles before `current_anomaly_id` is created and alert details are emitted.
+- Pending confirmation resets on:
+  - non-anomalous cycle
+  - low-confidence cycle
+  - skipped/not-ready cycle
+
+**Verification:**
+- Real `latency_spike` injection:
+  - cycle 1: `Potential anomaly observed (1/2 cycles)`
+  - cycle 2: `NEW ANOMALY DETECTED`
+- Normal traffic after the gap:
+  - `rows 21`
+  - `ready True`
+  - reconstruction error below threshold
+  - `is_anomaly False`
+
+---
+
+*End of Session (May 1)*

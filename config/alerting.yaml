@@ -33,8 +33,9 @@ alerting:
     max_alerts_per_hour: 10                        # TODO: Not yet implemented
     enable_deduplication: true                     # Enable smart anomaly tracking
     min_confidence: 0.25                           # Minimum confidence to alert (25% above threshold)
+    consecutive_anomaly_cycles: 2                  # Require N consecutive anomalous cycles before opening a new alert
     severity_tolerance: 0.2                        # ±20% for same anomaly detection
-    heartbeat_interval_seconds: 180                # Log ongoing status every 3 minutes
+    heartbeat_interval_seconds: 30                 # Log ongoing status every 30 seconds
     send_resolved_notification: true               # Send alert when anomaly clears
     escalation_threshold_minutes: 30               # Re-alert if anomaly persists 30+ minutes
     escalation_interval_minutes: 15                # Re-alert every 15 minutes after first escalation
