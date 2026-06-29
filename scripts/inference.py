@@ -49,6 +49,8 @@ from data.synthetic_data import generate_synthetic_data
 from models.lstm_autoencoder import LSTMAutoencoder
 from alerting.detector import AnomalyDetector
 from alerting.opsgenie_client import OpsgenieClient
+from alerting.telegram_client import TelegramClient
+from alerting.jsm_client import JSMClient
 from alerting.grafana_links import GrafanaLinkGenerator
 
 import numpy as np
@@ -89,7 +91,8 @@ class AnomalyDetectionService:
         self.windower = None
         self.model = None
         self.detector = None
-        self.opsgenie_client = None
+        self.notifier = None          # Alert backend (Telegram or Opsgenie)
+        self.alert_provider = None    # Selected provider name
         self.grafana_links = None
         
         # Alert rate limiting
@@ -195,21 +198,9 @@ class AnomalyDetectionService:
             else:
                 raise FileNotFoundError("Threshold not found. Please train model first.")
             
-            # Opsgenie client (optional)
-            opsgenie_key = self.config.get('alerting.opsgenie.api_key')
-            if opsgenie_key and opsgenie_key != "your_api_key_here":
-                opsgenie_base_url = self.config.get('alerting.opsgenie.base_url', 'https://api.opsgenie.com')
-                opsgenie_timeout = self.config.get('alerting.opsgenie.timeout_seconds', 10)
-                opsgenie_priority_thresholds = self.config.get('alerting.opsgenie.priority_thresholds', None)
-                self.opsgenie_client = OpsgenieClient(
-                    opsgenie_key,
-                    base_url=opsgenie_base_url,
-                    timeout=opsgenie_timeout,
-                    priority_thresholds=opsgenie_priority_thresholds
-                )
-                self.logger.info("Opsgenie client initialized")
-            else:
-                self.logger.warning("Opsgenie not configured - alerts will be logged only")
+            # Alert backend (provider selectable: jsm, telegram or opsgenie)
+            self.alert_provider = (self.config.get('alerting.provider', 'opsgenie') or 'opsgenie').lower()
+            self.notifier = self._initialize_notifier(self.alert_provider)
             
             # Grafana link generator (optional)
             grafana_url = self.config.get('alerting.grafana.base_url')
@@ -224,6 +215,60 @@ class AnomalyDetectionService:
             self.logger.error(f"Failed to initialize service: {e}")
             raise
     
+    def _initialize_notifier(self, provider: str):
+        """Create the alert backend chosen in config (jsm, telegram or opsgenie).
+
+        Returns a client exposing create_alert()/create_resolved_alert(), or None
+        when the selected provider is not configured (alerts are then logged only).
+        """
+        if provider == 'jsm':
+            jsm_key = self.config.get('alerting.jsm.api_key')
+            placeholder = isinstance(jsm_key, str) and jsm_key.startswith('${')
+            if jsm_key and not placeholder and jsm_key != "your_api_key_here":
+                notifier = JSMClient(
+                    jsm_key,
+                    base_url=self.config.get('alerting.jsm.base_url', 'https://api.atlassian.com/jsm/ops/integration'),
+                    timeout=self.config.get('alerting.jsm.timeout_seconds', 10),
+                    priority_thresholds=self.config.get('alerting.jsm.priority_thresholds', None),
+                )
+                self.logger.info("JSM alert client initialized")
+                return notifier
+            self.logger.warning("JSM not configured - alerts will be logged only")
+            return None
+
+        if provider == 'telegram':
+            bot_token = self.config.get('alerting.telegram.bot_token')
+            chat_id = self.config.get('alerting.telegram.chat_id')
+            unset = (None, '', 'your_bot_token_here')
+            placeholder = isinstance(bot_token, str) and bot_token.startswith('${')
+            if bot_token not in unset and not placeholder and chat_id not in unset:
+                notifier = TelegramClient(
+                    bot_token,
+                    chat_id,
+                    base_url=self.config.get('alerting.telegram.base_url', 'https://api.telegram.org'),
+                    timeout=self.config.get('alerting.telegram.timeout_seconds', 10),
+                    priority_thresholds=self.config.get('alerting.telegram.priority_thresholds', None),
+                )
+                self.logger.info("Telegram alert client initialized")
+                return notifier
+            self.logger.warning("Telegram not configured - alerts will be logged only")
+            return None
+
+        # Opsgenie (legacy)
+        opsgenie_key = self.config.get('alerting.opsgenie.api_key')
+        placeholder = isinstance(opsgenie_key, str) and opsgenie_key.startswith('${')
+        if opsgenie_key and not placeholder and opsgenie_key != "your_api_key_here":
+            notifier = OpsgenieClient(
+                opsgenie_key,
+                base_url=self.config.get('alerting.opsgenie.base_url', 'https://api.opsgenie.com'),
+                timeout=self.config.get('alerting.opsgenie.timeout_seconds', 10),
+                priority_thresholds=self.config.get('alerting.opsgenie.priority_thresholds', None),
+            )
+            self.logger.info("Opsgenie alert client initialized")
+            return notifier
+        self.logger.warning("Opsgenie not configured - alerts will be logged only")
+        return None
+
     def _get_current_data(self) -> pd.DataFrame:
         """Fetch current metrics from Prometheus or synthetic fallback."""
         if self.prometheus_client:
@@ -389,21 +434,22 @@ class AnomalyDetectionService:
         self.logger.warning(f"   Current error: {detection_result['reconstruction_error']:.4f}")
         self.logger.warning(f"   Initial error: {self.anomaly_initial_error:.4f}")
         
-        # Send to Opsgenie if configured
-        if self.opsgenie_client:
+        # Send to the configured alert backend
+        if self.notifier:
             # Modify detection result to indicate escalation
             escalation_result = detection_result.copy()
             escalation_result['is_escalation'] = True
             escalation_result['duration_minutes'] = duration
             escalation_result['initial_error'] = self.anomaly_initial_error
+            escalation_result['anomaly_id'] = self.current_anomaly_id
             
             grafana_link = None
             if self.grafana_links:
                 grafana_link = self.grafana_links.generate_anomaly_link(detection_result['timestamp'])
             
-            result = self.opsgenie_client.create_alert(escalation_result, grafana_link)
+            result = self.notifier.create_alert(escalation_result, grafana_link)
             if result['status'] == 'success':
-                self.logger.info(f"Escalation alert sent to Opsgenie: {result['alert_id']}")
+                self.logger.info(f"Escalation alert sent via {self.alert_provider}: {result['alert_id']}")
         
         self.last_escalation_time = datetime.now()
     
@@ -419,8 +465,8 @@ class AnomalyDetectionService:
         self.logger.warning(f"   Anomaly ID: {self.current_anomaly_id}")
         self.logger.warning(f"   Initial error: {self.anomaly_initial_error:.4f}, Peak: {self.anomaly_peak_error:.4f}")
         
-        # Send to Opsgenie if configured
-        if self.opsgenie_client:
+        # Send to the configured alert backend
+        if self.notifier:
             # Create resolved alert payload
             resolved_payload = {
                 'is_anomaly': False,
@@ -431,9 +477,9 @@ class AnomalyDetectionService:
                 'timestamp': datetime.now().isoformat()
             }
             
-            result = self.opsgenie_client.create_resolved_alert(resolved_payload)
+            result = self.notifier.create_resolved_alert(resolved_payload)
             if result['status'] == 'success':
-                self.logger.info(f"Resolved notification sent to Opsgenie")
+                self.logger.info(f"Resolved notification sent via {self.alert_provider}")
     
     def _send_alert(self, detection_result: dict):
         """Send alert through configured channels (Opsgenie, logs, Grafana links)."""
@@ -453,14 +499,15 @@ class AnomalyDetectionService:
             if grafana_link:
                 self.logger.warning(f"   Grafana: {grafana_link}")
             
-            # Opsgenie
-            if self.opsgenie_client and self._should_send_alert():
-                result = self.opsgenie_client.create_alert(detection_result, grafana_link)
+            # Configured alert backend (JSM, Telegram or Opsgenie)
+            if self.notifier and self._should_send_alert():
+                detection_result['anomaly_id'] = self.current_anomaly_id
+                result = self.notifier.create_alert(detection_result, grafana_link)
                 if result['status'] == 'success':
-                    self.logger.info(f"Alert sent to Opsgenie: {result['alert_id']}")
+                    self.logger.info(f"Alert sent via {self.alert_provider}: {result['alert_id']}")
                     self.last_alert_time = datetime.now()
                 else:
-                    self.logger.error(f"Failed to send Opsgenie alert: {result}")
+                    self.logger.error(f"Failed to send {self.alert_provider} alert: {result}")
             
         except Exception as e:
             self.logger.error(f"Error sending alert: {e}")

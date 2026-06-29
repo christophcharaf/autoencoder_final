@@ -1,0 +1,7 @@
+# Override local para la demo: evita el conflicto del puerto 8000 (usado por otro
+# proyecto). Prometheus scrapea mock-service por la red interna, así que el puerto
+# de host del mock solo se usa para inyectar anomalías manualmente.
+services:
+  mock-service:
+    ports: !override
+      - "8001:8000"

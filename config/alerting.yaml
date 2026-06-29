@@ -6,7 +6,40 @@ alerting:
     fixed_value: null        # para método fixed
     adaptive_window: 168     # horas para método adaptativo
     
-  # Configuración Opsgenie
+  # Proveedor de notificaciones: "jsm", "telegram" u "opsgenie".
+  # JSM (Jira Service Management Operations) es el sucesor de Opsgenie, que entró
+  # en fin de vida (sin altas nuevas desde junio de 2025; apagado el 5 de abril de
+  # 2027). Como la capa de alertas es HTTP, el canal es intercambiable.
+  provider: "jsm"
+
+  # Configuración JSM (Jira Service Management Operations).
+  # Endpoint de integración, compatible con Opsgenie (cabecera GenieKey y mismo
+  # payload). La api_key se obtiene creando una "API integration" en JSM
+  # (Operations > Settings > Integrations > API).
+  jsm:
+    api_key: "${JSM_API_KEY}"
+    base_url: "https://api.atlassian.com/jsm/ops/integration"
+    default_priority: "P3"
+    timeout_seconds: 10
+    # Prioridad derivada de la confianza (mismo criterio que Opsgenie).
+    priority_thresholds:
+      P1: 2.0
+      P2: 1.0
+      P3: 0.5
+
+  # Configuración Telegram (Bot API)
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    base_url: "https://api.telegram.org"
+    timeout_seconds: 10
+    # Prioridad derivada de la confianza (mismo criterio que Opsgenie).
+    priority_thresholds:
+      P1: 2.0
+      P2: 1.0
+      P3: 0.5
+
+  # Configuración Opsgenie (legado; conservada por compatibilidad)
   opsgenie:
     api_key: "${OPSGENIE_API_KEY}"
     team: "platform-ops"
